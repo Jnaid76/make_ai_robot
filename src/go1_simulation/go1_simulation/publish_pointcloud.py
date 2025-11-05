@@ -1,24 +1,5 @@
 #! /usr/bin/env python3
 
-"""
-This script publishes pointclouds from multiple depth cameras.
-
-The node subscribes to synchronized depth and RGB images from both 'face' and 'top' cameras,
-converts them to 3D points in their respective camera frames.
-
-Input topics (for each camera):
-    - camera_face/camera_info: Face camera intrinsic parameters (focal length, principal point)
-    - camera_face/image: RGB image from the face camera
-    - camera_face/depth: Depth image from the face camera
-    - camera_top/camera_info: Top camera intrinsic parameters (focal length, principal point)
-    - camera_top/image: RGB image from the top camera
-    - camera_top/depth: Depth image from the top camera
-
-Output topics:
-    - camera_face/points: PointCloud2 message with XYZRGB points in the face camera frame
-    - camera_top/points: PointCloud2 message with XYZRGB points in the top camera frame
-"""
-
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
@@ -31,11 +12,16 @@ import time
 
 
 class CameraHandler:
-    """Handles point cloud generation for a single camera"""
+    """
+    This class handles point cloud generation for a single camera.
+    It subscribes to the camera info, image, and depth topics, and publishes the point cloud to the '/points' topic.
+    For the transformation from camera frame to map frame (fixed world origin), set proper 'msg.header.frame_id'.
+    """
     
     def __init__(self, node, camera_name):
-        """
+        f"""
         Initialize camera handler for a specific camera.
+        Colored point cloud is published to the '/"camera_name"/points' topic.
         
         Args:
             node: Parent ROS2 node
@@ -43,9 +29,13 @@ class CameraHandler:
         """
         self.node = node
         self.camera_name = camera_name
+        # Camera fram is differnt from camera optical frame because of image transformation convention.
         self.camera_frame = f'camera_optical_{camera_name}'
         self.bridge = CvBridge()
         self.camera_info = None
+        
+        # Cache for meshgrid to avoid recomputing every frame
+        self.meshgrid_cache = None
         
         # Subscribe to camera info
         self.camera_info_sub = self.node.create_subscription(
@@ -56,6 +46,7 @@ class CameraHandler:
         )
         
         # Synchronized subscribers for image and depth
+        # Because RGB and depth images are might be captured at different times, we use approximate time synchronizer.
         self.image_sub = Subscriber(self.node, Image, f'camera_{camera_name}/image')
         self.depth_sub = Subscriber(self.node, Image, f'camera_{camera_name}/depth')
         
@@ -64,6 +55,8 @@ class CameraHandler:
             [self.image_sub, self.depth_sub],
             queue_size=10,
             slop=0.1
+            # slop: Maximum time difference between the RGB and depth images timestamp in seconds.
+            # RGB t=1.00 + Depth t=1.02 → Difference = 0.02s ✓ (< 0.1s, MATCH!)
         )
         self.ts.registerCallback(self.sync_callback)
         
@@ -74,17 +67,21 @@ class CameraHandler:
             10
         )
         
+        # Print information about the node
         self.node.get_logger().info(
             f'Camera handler initialized for {camera_name} camera '
             f'(frame: {self.camera_frame})'
         )
     
+
     def camera_info_callback(self, msg):
         """Store camera intrinsics"""
+        # Store camera intrinsics for later use (Update only once)
         if self.camera_info is None:
             self.camera_info = msg
             self.node.get_logger().info(f'Camera info received for {self.camera_name}')
     
+
     def sync_callback(self, image_msg, depth_msg):
         """Process synchronized image and depth messages"""
         if self.camera_info is None:
@@ -112,11 +109,12 @@ class CameraHandler:
                 f'Error processing images for {self.camera_name}: {str(e)}'
             )
     
+
     def create_pointcloud(self, depth_image, rgb_image, header):
         """
-        Create PointCloud2 message from depth and RGB images.
+        Create PointCloud2 message from RGB and depth images.
         
-        Converts 2D depth and RGB images into 3D colored points using camera intrinsics,
+        Converts 2D RGB and depth images into 3D colored points using camera intrinsics,
         
         Args:
             depth_image: Depth image as numpy array (meters)
@@ -135,7 +133,10 @@ class CameraHandler:
         
         height, width = depth_image.shape
         
-        # Convert depth to meters if needed (assuming depth is in meters already)
+        # Convert depth to meters if needed (In our case, depth is in meters already)
+        # In our case, depth image is in the camera optical frame (You can visualize it in Rviz: RGB arrow<->XYZ coordinate).
+        # x-axis: Represents the forward (viewing) direction, pointing from the camera's center out through the lens.
+        # z-axis: Represents the up direction, pointing from the camera's center toward the top (e.g., toward a physical button).
         x = depth_image.astype(np.float32)
         
         # Filter out invalid depth values (zero, negative, inf, nan)
@@ -166,10 +167,26 @@ class CameraHandler:
             msg.data = bytes()
             return msg
         
-        # Create coordinate arrays
-        u = np.arange(width)
-        v = np.arange(height)
-        u, v = np.meshgrid(u, v)
+        # If there are valid depth values, create point cloud
+        # Create pixel-wise coordinate arrays (W x H) - cached for performance
+        if self.meshgrid_cache is None or self.meshgrid_cache[0].shape != (height, width):
+            u = np.arange(width)
+            v = np.arange(height)
+            u, v = np.meshgrid(u, v)
+            self.meshgrid_cache = (u, v)
+        else:
+            u, v = self.meshgrid_cache
+
+        # u: shape (H, W) <- right-side up
+        # array([[  0,   1,   2, ..., W-1],
+        #        [  0,   1,   2, ..., W-1],
+        #        ...,
+        #        [  0,   1,   2, ..., W-1]]
+        # v: shape (H, W) <- bottom-side up
+        # array([[  0,   0,   0, ...,   0],
+        #        [  1,   1,   1, ...,   1],
+        #        ...,
+        #        [H-1, H-1, H-1, ..., H-1]]
         
         # Extract only valid depth values and corresponding coordinates
         x_valid = x[valid_mask]
@@ -177,20 +194,21 @@ class CameraHandler:
         v_valid = v[valid_mask]
         
         # Compute 3D coordinates in camera frame (only for valid points)
+        # x-axis: Represents the forward (viewing) direction, pointing from the camera's center out through the lens.
+        # z-axis: Represents the up direction, pointing from the camera's center toward the top (e.g., toward a physical button).        
         x = x_valid
         y = - (u_valid - cx) * x_valid / fx
         z = - (v_valid - cy) * x_valid / fy     
 
-        # Get RGB values for valid points
-        r = rgb_image[:, :, 0][valid_mask].flatten()
-        g = rgb_image[:, :, 1][valid_mask].flatten()
-        b = rgb_image[:, :, 2][valid_mask].flatten()
+        # Get RGB values for valid points 
+        rgb_valid = rgb_image[valid_mask]  # Shape: (N, 3)
+        r = rgb_valid[:, 0]
+        g = rgb_valid[:, 1]
+        b = rgb_valid[:, 2]
         
-        # Pack RGB into single float
-        rgb = np.zeros(len(r), dtype=np.float32)
-        for i in range(len(r)):
-            rgb_int = (int(r[i]) << 16) | (int(g[i]) << 8) | int(b[i])
-            rgb[i] = struct.unpack('f', struct.pack('i', rgb_int))[0]
+        # Pack RGB into single float 
+        rgb_int = (r.astype(np.uint32) << 16) | (g.astype(np.uint32) << 8) | b.astype(np.uint32)
+        rgb = rgb_int.view(np.float32)
         
         # Create point cloud data
         points = np.zeros(len(x), dtype=[
@@ -211,10 +229,13 @@ class CameraHandler:
         msg.header.frame_id = self.camera_frame
         msg.height = 1
         msg.width = len(points)
+        # is_dense: If True, the point cloud is dense (i.e., all points are valid).
         msg.is_dense = False
+        # is_bigendian: If True, the point cloud is in big endian format.
         msg.is_bigendian = False
         
         # Define fields
+        # offset: Offset in bytes from the beginning of the point data. (0-3: x, 4-7: y, 8-11: z, 12-15: rgb)
         msg.fields = [
             PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
             PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
@@ -222,7 +243,9 @@ class CameraHandler:
             PointField(name='rgb', offset=12, datatype=PointField.FLOAT32, count=1),
         ]
         
+        # point_step: Size of one point in bytes (16 bytes for x, y, z, rgb with 4 bytes each)
         msg.point_step = 16
+        # row_step: Size of one row in bytes (point_step * width)
         msg.row_step = msg.point_step * msg.width
         msg.data = points.tobytes()
         
@@ -230,14 +253,14 @@ class CameraHandler:
 
 
 class PointCloudPublisher(Node):
-    """Main node that manages point cloud publishers for multiple cameras"""
+    """Main node that manages point cloud publishers for face and top cameras"""
     
     def __init__(self):
         super().__init__('pointcloud_publisher')
         
         # Create handlers for both face and top cameras
-        self.face_handler = CameraHandler(self, 'face')
-        self.top_handler = CameraHandler(self, 'top')
+        self.face_camera_handler = CameraHandler(self, 'face')
+        self.top_camera_handler = CameraHandler(self, 'top')
         
         self.get_logger().info('PointCloud publisher node initialized for face and top cameras')
 

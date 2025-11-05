@@ -1,40 +1,5 @@
 #! /usr/bin/env python3
 
-"""
-Move the Go1 robot with the keyboard.
-
-Controls:
-  w: forward
-  x: backward
-  s: stop
-  a: rotate left
-  d: rotate right
-  i: increase speed
-  o: decrease speed
-  q: quit
-
-Based on these commands:
-w: forward
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
-  "{linear: {x: 0.2, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" -r 10
-
-x: backward
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
-  "{linear: {x: -0.2, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" -r 10
-
-s: stop
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
-  "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" -r 10  
-
-a: rotate left
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
-  "{linear: {x: 0.05, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.2}}" -r 10
-
-d: rotate right
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
-  "{linear: {x: 0.05, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: -0.2}}" -r 10
-"""
-
 import sys
 import termios
 import tty
@@ -45,7 +10,22 @@ from geometry_msgs.msg import Twist
 
 class KeyboardController(Node):
     """
-    ROS 2 node for controlling the Go1 robot with keyboard input.
+    This is a ROS 2 node for controlling the Go1 robot with keyboard input.
+    With keyboard input, you can move the robot go forward, go backward, rotate left, rotate right, and stop.
+    w: go forward, x: go backward, s: stop, a: left rotation, d: right rotation, q: quit
+    For the rotation, robot need small linear velocity. 
+
+    You can also use CLI commands to move the robot.
+    For example, to go forward:
+    'ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" -r 10'
+
+    To rotate left:
+    'ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.05, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.2}}" -r 10'
+
+    'junior_ctrl' node takes velocity commands from '/cmd_vel' topic, calculates the joint commands, and sends to the robot's controllers.
+    You can use 'msg.linear.x' and 'msg.angular.z' to adjust the linear and angular velocity.
+
+    You can adjust the linear or angular velocity to make the robot move faster or slower.
     """
 
     def __init__(self):
@@ -72,6 +52,7 @@ class KeyboardController(Node):
         self.get_logger().info('Keyboard controller started')
         self.print_instructions()
 
+
     def print_instructions(self):
         """Print control instructions."""
         print("\n" + "="*50)
@@ -89,6 +70,7 @@ class KeyboardController(Node):
         print("="*50)
         print(f"Current speed scale: {self.speed_scale:.1f}x")
         print("="*50 + "\n")
+
 
     def publish_velocity(self, linear_x, angular_z):
         """
@@ -129,6 +111,7 @@ class KeyboardController(Node):
         else:
             print(f"\n>>> Already at minimum speed ({self.min_speed_scale:.1f}x) <<<")
 
+
     def get_key(self):
         """
         Read a single key from stdin without waiting for Enter.
@@ -144,6 +127,7 @@ class KeyboardController(Node):
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         return key
+
 
     def run(self):
         """Main loop to read keyboard input and publish commands."""

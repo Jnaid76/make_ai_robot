@@ -3,9 +3,9 @@
 <package format="3">
   <name>go1_simulation</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="rohgogi05@gmail.com">roy</maintainer>
-  <license>TODO: License declaration</license>
+  <description>Go1 Simulation Package</description>
+  <maintainer email="gogi05@snu.ac.kr">Kyung-Rok Rho</maintainer>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>
@@ -17,8 +17,14 @@
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>rosgraph_msgs</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
+  
+  <depend>cv_bridge</depend>
+  <depend>message_filters</depend>
+  <depend>slam_toolbox</depend>
+  <depend>ament_index_python</depend>
 
   <depend>ros2_unitree_legged_msgs</depend>
   <depend>ros2_unitree_legged_control</depend>
@@ -34,12 +40,12 @@
   <exec_depend>joint_state_publisher_gui</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>aws_robomaker_hospital_world</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
-  
-  <build_depend>eigen</build_depend>
-  <build_depend>libboost-dev</build_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

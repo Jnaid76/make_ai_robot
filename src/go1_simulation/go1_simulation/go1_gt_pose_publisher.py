@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
 
-""" 
-This script reads from Gazebo's '/world/default/dynamic_pose/info' topic directly via CLI,
-finds the 'go1' robot pose, and publishes it.
-
-Parameters:
-- comparison (bool, default=True): If True, publishes to '/go1_pose' and '/go1_pose_2d' without TF.
-                                    If False, publishes to '/go1_pose_gt' and '/go1_pose_2d_gt' with TF.
-
-Publishes:
-- geometry_msgs/msg/PoseStamped (3D pose) to '/go1_pose' or '/go1_pose_gt'
-- geometry_msgs/msg/Pose2D (x, y, theta) to '/go1_pose_2d' or '/go1_pose_2d_gt'
-- TF transform from 'map' to 'odom' to 'base' frame (only when comparison=False)
-
-Usage examples:
-- Default (comparison=True): ros2 run go1_simulation go1_gt_pose_publisher
-- With comparison=False: ros2 run go1_simulation go1_gt_pose_publisher --ros-args -p comparison:=false
-
-"""
-
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose2D, PoseStamped, TransformStamped
@@ -32,10 +13,19 @@ import re
 
 class Go1GTPosePublisher(Node):
     """
-    ROS 2 node that reads Gazebo's dynamic pose info topic via CLI,
-    finds the 'go1' robot pose, and publishes it.
-    Publishes both 3D pose (PoseStamped) and 2D pose (Pose2D).
-    Broadcasts TF transform from map to odom to base frame only when comparison=False.
+    This is a ROS 2 node that reads robot's ground truth pose from Gazebo simulation topic via CLI and publishes it to ROS topics.
+    With this node, you can compare the ground truth pose with the estimated pose from the robot's sensors.
+    If you have not implemented localization yet, you can use this node to get the ground truth pose.
+
+    To use this node, run this command (You can change the value of comparison to true or false): 
+    'ros2 run go1_simulation go1_gt_pose_publisher.py --ros-args -p comparison:=true'
+
+    If comparison is true, the default value, the node publishes to '/go1_pose' and '/go1_pose_2d' without broadcasting TF.
+    If comparison is false, the node publishes to '/go1_pose_gt' and '/go1_pose_2d_gt' and broadcasts TF.
+
+    For TF (Transform Frame) broadcasting, two frames are broadcasted: 'map' to 'odom' and 'odom' to 'base'.
+    'map' is the global frame, 'odom' is the odometry frame, and 'base' is the robot's base frame.
+    For more information about TF, please refer to the ROS 2 documentation.
     """
 
     def __init__(self):
@@ -55,6 +45,9 @@ class Go1GTPosePublisher(Node):
         
         # Store the latest simulation time from /clock
         self.current_sim_time = None
+
+        # Create a lock for the clock topic
+        # This is to prevent race condition between the clock callback thread and the pose publisher thread.
         self.clock_lock = threading.Lock()
         
         # Subscribe to /clock topic to get simulation time
@@ -82,6 +75,14 @@ class Go1GTPosePublisher(Node):
             10
         )
         
+        # Start thread to read from gz topic
+        self.running = True
+        self.gz_thread = threading.Thread(target=self.read_gz_topic)
+        # Set the thread as a daemon thread so that it will be terminated when the main thread is terminated.
+        self.gz_thread.daemon = True
+        self.gz_thread.start()
+
+        # Print information about the node        
         self.get_logger().info('Ground truth pose publisher node started')
         self.get_logger().info(f'Comparison mode: {self.comparison}')
         self.get_logger().info('Subscribing to /clock for simulation time')
@@ -92,13 +93,8 @@ class Go1GTPosePublisher(Node):
             self.get_logger().info('Broadcasting TF: map -> odom -> base')
         else:
             self.get_logger().info('TF broadcasting disabled (comparison mode)')
-        
-        # Start thread to read from gz topic
-        self.running = True
-        self.gz_thread = threading.Thread(target=self.read_gz_topic)
-        self.gz_thread.daemon = True
-        self.gz_thread.start()
-    
+            
+
     def clock_callback(self, msg):
         """
         Callback for /clock topic to store simulation time.
@@ -107,172 +103,10 @@ class Go1GTPosePublisher(Node):
             msg (Clock): Clock message with simulation time
         """
         with self.clock_lock:
+            # If clock is locked (pose publisher thread is reading the pose data), 
+            # the clock callback thread will wait until the pose publisher thread is done.
             self.current_sim_time = msg.clock
 
-    def quaternion_to_yaw(self, qx, qy, qz, qw):
-        """
-        Convert quaternion to yaw angle (theta).
-        
-        Args:
-            qx, qy, qz, qw: Quaternion components
-            
-        Returns:
-            float: Yaw angle in radians
-        """
-        # Convert quaternion to yaw using the formula:
-        # yaw = atan2(2*(w*z + x*y), 1 - 2*(y*y + z*z))
-        siny_cosp = 2.0 * (qw * qz + qx * qy)
-        cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
-        yaw = math.atan2(siny_cosp, cosy_cosp)
-        return yaw
-
-    def parse_pose_data(self, lines):
-        """
-        Parse pose data from a list of lines.
-        
-        Args:
-            lines (list): List of lines from the gz topic output
-            
-        Returns:
-            dict or None: Dictionary with name, position, and orientation, or None if parsing fails
-        """
-        try:
-            data = {
-                'name': None,
-                'position': {'x': None, 'y': None, 'z': None},
-                'orientation': {'x': None, 'y': None, 'z': None, 'w': None}
-            }
-            
-            current_section = None
-            
-            for line in lines:
-                line = line.strip()
-                
-                # Check for name
-                if 'name:' in line:
-                    match = re.search(r'name:\s*"([^"]+)"', line)
-                    if match:
-                        data['name'] = match.group(1)
-                
-                # Check for section headers
-                elif line.startswith('position {'):
-                    current_section = 'position'
-                elif line.startswith('orientation {'):
-                    current_section = 'orientation'
-                elif line == '}':
-                    current_section = None
-                
-                # Extract numeric values
-                elif current_section and ':' in line:
-                    parts = line.split(':')
-                    if len(parts) == 2:
-                        key = parts[0].strip()
-                        value_str = parts[1].strip()
-                        try:
-                            value = float(value_str)
-                            if current_section in data and key in data[current_section]:
-                                data[current_section][key] = value
-                        except ValueError:
-                            pass
-            
-            # Verify all required fields are present
-            if (data['name'] and 
-                all(v is not None for v in data['position'].values()) and
-                all(v is not None for v in data['orientation'].values())):
-                return data
-            
-            return None
-            
-        except Exception as e:
-            self.get_logger().debug(f'Error parsing pose data: {e}')
-            return None
-
-    def publish_pose_data(self, pose_data):
-        """
-        Publish pose data as ROS messages and TF.
-        Publishes both 3D and 2D poses.
-        Only broadcasts TF when comparison is False.
-        
-        Args:
-            pose_data: Dictionary with position and orientation data
-        """
-        # Get simulation time from /clock topic
-        with self.clock_lock:
-            if self.current_sim_time is None:
-                # If we haven't received clock yet, skip publishing
-                return
-            current_time = self.current_sim_time
-        
-        # Only broadcast TF transforms when comparison is False
-        if not self.comparison:
-            # Broadcast TF transform from map to odom
-            t = TransformStamped()
-            t.header.stamp = current_time
-            t.header.frame_id = 'map'
-            t.child_frame_id = 'odom'
-            
-            # Set translation
-            t.transform.translation.x = 0.0
-            t.transform.translation.y = 0.0
-            t.transform.translation.z = 0.0
-            
-            # Set rotation (quaternion)
-            t.transform.rotation.x = 0.0
-            t.transform.rotation.y = 0.0
-            t.transform.rotation.z = 0.0
-            t.transform.rotation.w = 1.0
-
-            # Broadcast the transform
-            self.tf_broadcaster.sendTransform(t)        
-
-            # Broadcast TF transform from odom to base
-            t = TransformStamped()
-            t.header.stamp = current_time
-            t.header.frame_id = 'odom'
-            t.child_frame_id = 'base'
-            
-            # Set translation
-            t.transform.translation.x = pose_data['position']['x']
-            t.transform.translation.y = pose_data['position']['y']
-            t.transform.translation.z = pose_data['position']['z']
-            
-            # Set rotation (quaternion)
-            t.transform.rotation.x = pose_data['orientation']['x']
-            t.transform.rotation.y = pose_data['orientation']['y']
-            t.transform.rotation.z = pose_data['orientation']['z']
-            t.transform.rotation.w = pose_data['orientation']['w']        
-            
-            # Broadcast the transform
-            self.tf_broadcaster.sendTransform(t)
-        
-        # Publish 3D pose (PoseStamped)
-        pose_stamped = PoseStamped()
-        pose_stamped.header.stamp = current_time
-        pose_stamped.header.frame_id = 'map'
-        
-        pose_stamped.pose.position.x = pose_data['position']['x']
-        pose_stamped.pose.position.y = pose_data['position']['y']
-        pose_stamped.pose.position.z = pose_data['position']['z']
-        
-        pose_stamped.pose.orientation.x = pose_data['orientation']['x']
-        pose_stamped.pose.orientation.y = pose_data['orientation']['y']
-        pose_stamped.pose.orientation.z = pose_data['orientation']['z']
-        pose_stamped.pose.orientation.w = pose_data['orientation']['w']
-        
-        self.publisher_3d.publish(pose_stamped)
-        
-        # Publish 2D pose (Pose2D)
-        pose_2d = Pose2D()
-        pose_2d.x = pose_data['position']['x']
-        pose_2d.y = pose_data['position']['y']
-        pose_2d.theta = self.quaternion_to_yaw(
-            pose_data['orientation']['x'],
-            pose_data['orientation']['y'],
-            pose_data['orientation']['z'],
-            pose_data['orientation']['w']
-        )
-        
-        self.publisher_2d.publish(pose_2d)
 
     def read_gz_topic(self):
         """
@@ -343,8 +177,182 @@ class Go1GTPosePublisher(Node):
         except Exception as e:
             self.get_logger().error(f'Error reading gz topic: {e}')
 
+
+    def parse_pose_data(self, lines):
+        """
+        Parse pose data from a list of lines.
+        
+        Args:
+            lines (list): List of lines from the gz topic output
+            
+        Returns:
+            dict or None: Dictionary with name, position, and orientation, or None if parsing fails
+        """
+        try:
+            data = {
+                'name': None,
+                'position': {'x': None, 'y': None, 'z': None},
+                'orientation': {'x': None, 'y': None, 'z': None, 'w': None}
+            }
+            
+            current_section = None
+            
+            for line in lines:
+                line = line.strip()
+                
+                # Check for name
+                if 'name:' in line:
+                    match = re.search(r'name:\s*"([^"]+)"', line)
+                    if match:
+                        data['name'] = match.group(1)
+                
+                # Check for section headers
+                elif line.startswith('position {'):
+                    current_section = 'position'
+                elif line.startswith('orientation {'):
+                    current_section = 'orientation'
+                elif line == '}':
+                    current_section = None
+                
+                # Extract numeric values
+                elif current_section and ':' in line:
+                    parts = line.split(':')
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value_str = parts[1].strip()
+                        try:
+                            value = float(value_str)
+                            if current_section in data and key in data[current_section]:
+                                data[current_section][key] = value
+                        except ValueError:
+                            pass
+            
+            # Verify all required fields are present
+            if (data['name'] and 
+                all(v is not None for v in data['position'].values()) and
+                all(v is not None for v in data['orientation'].values())):
+                return data
+            
+            return None
+            
+        except Exception as e:
+            self.get_logger().debug(f'Error parsing pose data: {e}')
+            return None
+
+
+    def publish_pose_data(self, pose_data):
+        """
+        Publish pose data as ROS messages and broadcasts TF.
+        Publishes both 3D and 2D poses.
+        Only broadcasts TF when comparison is False.
+        
+        Args:
+            pose_data: Dictionary with position and orientation data
+        """
+        # Get simulation time from /clock topic
+        with self.clock_lock:
+            # If clock is locked (clock_callback thread is writing to the current_sim_time),
+            # the publish_pose_data thread will wait until the clock callback thread is done.
+            if self.current_sim_time is None:
+                # If we haven't received clock yet, skip publishing
+                return
+            current_time = self.current_sim_time
+        
+        # Only broadcast TF transforms when comparison is False
+        if not self.comparison:
+            # Broadcast zero translation and rotation TF transform from map to odom
+            # We assume perfect odometry without any noise or drift.
+            t = TransformStamped()
+            t.header.stamp = current_time
+            t.header.frame_id = 'map'
+            t.child_frame_id = 'odom'
+            
+            # Set translation
+            t.transform.translation.x = 0.0
+            t.transform.translation.y = 0.0
+            t.transform.translation.z = 0.0
+            
+            # Set rotation (quaternion)
+            t.transform.rotation.x = 0.0
+            t.transform.rotation.y = 0.0
+            t.transform.rotation.z = 0.0
+            t.transform.rotation.w = 1.0
+
+            # Broadcast the transform
+            self.tf_broadcaster.sendTransform(t)        
+
+            # Broadcast TF transform from odom to base
+            # Use ground truth pose data for the transform
+            t = TransformStamped()
+            t.header.stamp = current_time
+            t.header.frame_id = 'odom'
+            t.child_frame_id = 'base'
+            
+            # Set translation
+            t.transform.translation.x = pose_data['position']['x']
+            t.transform.translation.y = pose_data['position']['y']
+            t.transform.translation.z = pose_data['position']['z']
+            
+            # Set rotation (quaternion)
+            t.transform.rotation.x = pose_data['orientation']['x']
+            t.transform.rotation.y = pose_data['orientation']['y']
+            t.transform.rotation.z = pose_data['orientation']['z']
+            t.transform.rotation.w = pose_data['orientation']['w']        
+            
+            # Broadcast the transform
+            self.tf_broadcaster.sendTransform(t)
+        
+        # Publish ground truth pose data as ROS messages
+        # Publish 3D pose (PoseStamped)
+        pose_stamped = PoseStamped()
+        pose_stamped.header.stamp = current_time
+        pose_stamped.header.frame_id = 'map'
+        
+        pose_stamped.pose.position.x = pose_data['position']['x']
+        pose_stamped.pose.position.y = pose_data['position']['y']
+        pose_stamped.pose.position.z = pose_data['position']['z']
+        
+        pose_stamped.pose.orientation.x = pose_data['orientation']['x']
+        pose_stamped.pose.orientation.y = pose_data['orientation']['y']
+        pose_stamped.pose.orientation.z = pose_data['orientation']['z']
+        pose_stamped.pose.orientation.w = pose_data['orientation']['w']
+        
+        self.publisher_3d.publish(pose_stamped)
+        
+        # Publish 2D pose (Pose2D)
+        pose_2d = Pose2D()
+        pose_2d.x = pose_data['position']['x']
+        pose_2d.y = pose_data['position']['y']
+        pose_2d.theta = self.quaternion_to_yaw(
+            pose_data['orientation']['x'],
+            pose_data['orientation']['y'],
+            pose_data['orientation']['z'],
+            pose_data['orientation']['w']
+        )
+        
+        self.publisher_2d.publish(pose_2d)
+
+
+    def quaternion_to_yaw(self, qx, qy, qz, qw):
+        """
+        Convert quaternion to yaw angle (theta).
+        
+        Args:
+            qx, qy, qz, qw: Quaternion components
+            
+        Returns:
+            float: Yaw angle in radians
+        """
+        # Convert quaternion to yaw using the formula:
+        # yaw = atan2(2*(w*z + x*y), 1 - 2*(y*y + z*z))
+        siny_cosp = 2.0 * (qw * qz + qx * qy)
+        cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+        return yaw
+
+        
     def destroy_node(self):
-        """Clean up when node is destroyed."""
+        """Clean up when node is destroyed. Stop the thread and destroy the node."""
         self.running = False
         if hasattr(self, 'gz_thread'):
             self.gz_thread.join(timeout=1.0)

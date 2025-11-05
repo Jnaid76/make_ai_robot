@@ -11,44 +11,45 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    """
+    Launch Gazebo world with the robot.
+    Start sensors (RGB camera, depth camera, IMU, etc.) and motors (joint controllers) for the robot.
+    Publish pointcloud from the RGB-D cameras (face and top)
+    Depending on the launch arguments, it can also use GT pose of the robot for localization.
+    """
     # Constants for paths to different files and folders
-    package_name = 'go1_simulation'
+    go1_pkg_name = 'go1_simulation'
+    world_pkg_name = 'aws_robomaker_hospital_world'
 
+    # Default values for launch arguments
     default_robot_name = 'go1'
-    gazebo_models_path = 'models'
-    gazebo_worlds_path = 'worlds'
-    gazebo_fuel_models_path = 'fuel_models'
-    default_world_file = 'hospital.world'    
+    models_dir_name = 'models'
+    fuel_models_dir_name = 'fuel_models'
+    worlds_dir_name = 'worlds'
+    default_world_file_name = 'hospital.world'    
 
-    ros_gz_bridge_config_file_path = 'config/ros_gz_bridge.yaml'
+    # Path to the ROS-Gazebo bridge configuration file
+    ros_gz_bridge_config_file_name = 'config/ros_gz_bridge.yaml'
 
     # Set the path to different files and folders
-    pkg_ros_gz_sim = FindPackageShare(package='ros_gz_sim').find('ros_gz_sim')
-    pkg_share = FindPackageShare(package=package_name).find(package_name)
-    pkg_hospital_world = FindPackageShare(package='aws_robomaker_hospital_world').find('aws_robomaker_hospital_world')
-    gazebo_hospital_models_path = os.path.join(pkg_hospital_world, gazebo_models_path)
-    gazebo_hospital_fuel_models_path = os.path.join(pkg_hospital_world, gazebo_fuel_models_path)
-    default_ros_gz_bridge_config_file_path = os.path.join(pkg_share, ros_gz_bridge_config_file_path)
-    default_world_file = os.path.join(pkg_hospital_world, 'worlds', default_world_file)
+    # Go1 simulation package
+    go1_pkg_share_dir = FindPackageShare(package=go1_pkg_name).find(go1_pkg_name)
+    default_ros_gz_bridge_config_file = os.path.join(go1_pkg_share_dir, ros_gz_bridge_config_file_name)
+    # Gazebo simulation package
+    pkg_ros_gz_sim = FindPackageShare(package='ros_gz_sim').find('ros_gz_sim')    
+    # Gazebo world and model packge
+    world_pkg_share_dir = FindPackageShare(package=world_pkg_name).find(world_pkg_name)
+    models_dir = os.path.join(world_pkg_share_dir, models_dir_name)
+    fuel_models_dir = os.path.join(world_pkg_share_dir, fuel_models_dir_name)
 
     # Export GZ_SIM_RESOURCE_PATH
-    gz_resource_path = os.environ.get('GZ_SIM_RESOURCE_PATH', '')
-    gz_default_paths = '/usr/share/gz'
-    
-    if gz_resource_path:
-        gz_resource_path = f"{gazebo_models_path}:{gazebo_hospital_models_path}:{gazebo_hospital_fuel_models_path}:{gz_default_paths}:{gz_resource_path}"
-    else:
-        gz_resource_path = f"{gazebo_models_path}:{gazebo_hospital_models_path}:{gazebo_hospital_fuel_models_path}:{gz_default_paths}"    
+    # Without GZ_SIM_RESOURCE_PATH, Gazebo will not find the models and fuel models.
+    gz_resource_path = f"{models_dir}:{fuel_models_dir}:/opt/ros/jazzy/share"
 
     # Launch configuration variables
     robot_name = LaunchConfiguration('robot_name')
-    jsp_gui = LaunchConfiguration('jsp_gui')
-    load_controllers = LaunchConfiguration('load_controllers')
-    use_rviz = LaunchConfiguration('use_rviz')
-    use_gazebo = LaunchConfiguration('use_gazebo')
-    use_robot_state_pub = LaunchConfiguration('use_robot_state_pub')
     use_sim_time = LaunchConfiguration('use_sim_time')
-    world_file = LaunchConfiguration('world_file')
+    world_file_name = LaunchConfiguration('world_file_name')
     use_gt_pose = LaunchConfiguration('use_gt_pose')
 
     # Set the pose configuration variables
@@ -65,45 +66,20 @@ def generate_launch_description():
         default_value=default_robot_name,
         description='The name for the robot')    
 
-    declare_load_controllers_cmd = DeclareLaunchArgument(
-        name='load_controllers',
-        default_value='true',
-        description='Flag to enable loading of ROS 2 controllers')
-
-    declare_use_robot_state_pub_cmd = DeclareLaunchArgument(
-        name='use_robot_state_pub',
-        default_value='true',
-        description='Flag to enable robot state publisher')
-
-    declare_jsp_gui_cmd = DeclareLaunchArgument(
-        name='jsp_gui',
-        default_value='false',
-        description='Flag to enable joint_state_publisher_gui')
-
-    declare_use_gazebo_cmd = DeclareLaunchArgument(
-        name='use_gazebo',
-        default_value='true',
-        description='Flag to enable Gazebo')
-
-    declare_use_rviz_cmd = DeclareLaunchArgument(
-        name='use_rviz',
-        default_value='true',
-        description='Flag to enable RViz')
-
     declare_use_sim_time_cmd = DeclareLaunchArgument(
         name='use_sim_time',
         default_value='true',
         description='Use simulation (Gazebo) clock if true')
 
-    declare_world_cmd = DeclareLaunchArgument(
-        name='world_file',
-        default_value=default_world_file,
-        description='World file name (e.g., empty.world, house.world, pick_and_place_demo.world)')
+    declare_world_file_name_cmd = DeclareLaunchArgument(
+        name='world_file_name',
+        default_value=default_world_file_name,
+        description='World file name (e.g., hospital.world, empty.world, cafe.world)')
 
     declare_use_gt_pose_cmd = DeclareLaunchArgument(
         name='use_gt_pose',
         default_value='false',
-        description='Flag to enable publishing GT pose of the robot to /go1_pose_gt and /go1_pose_2d_gt topics')
+        description='Flag to enable using GT pose for localization')
 
     # Pose arguments
     declare_x_cmd = DeclareLaunchArgument(
@@ -136,14 +112,15 @@ def generate_launch_description():
         default_value='0.0',
         description='yaw angle of initial orientation, radians')
 
-    # Set Gazebo model path
-
+    # Set Gazebo resource path
     set_gz_resource_path = SetEnvironmentVariable(
         name='GZ_SIM_RESOURCE_PATH',
         value=gz_resource_path
     )    
 
     # Launch Gazebo world
+    # 'world_file' changes with launch argument 'world_file_name'
+    world_file = PathJoinSubstitution([world_pkg_share_dir, worlds_dir_name, world_file_name])
     start_gazebo_world_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')),
@@ -151,41 +128,43 @@ def generate_launch_description():
     )
 
     # Bridge ROS topics and Gazebo messages for establishing communication
+    # This enables sensors (Gazebo -> ROS) and motors (ROS -> Gazebo). 
+    # Sensor configs are defined in 'config/ros_gz_bridge.yaml'
+    # Motor configs are defined in 'urdf/control/go1_ros2_control.urdf.xacro', and 'urdf/control/gazebo_sim_ros2_control.urdf.xacro'
     start_gazebo_ros_bridge_cmd = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
         parameters=[{
-            'config_file': default_ros_gz_bridge_config_file_path,
+            'config_file': default_ros_gz_bridge_config_file,
         }],
         output='screen'
     )
 
-    # Include Robot State Publisher launch file if enabled
+    # Spawn the robot in ROS2
     robot_state_publisher_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
-            os.path.join(pkg_share, 'launch', 'robot_state_publisher.launch.py')
+            os.path.join(go1_pkg_share_dir, 'launch', 'robot_state_publisher.launch.py')
         ]),
         launch_arguments={
-            'jsp_gui': jsp_gui,
-            'use_gazebo': use_gazebo,
-            'use_rviz': use_rviz,
             'use_sim_time': use_sim_time
-        }.items(),
-        condition=IfCondition(use_robot_state_pub)
+        }.items()
     )
 
-    # Include ROS 2 Controllers launch file if enabled
+    # Load the ROS 2 controllers (joint controllers)
+    # Joint controller itself is independent of Gazebo. 
+    # It is only responsible for sending commands to the motor topic in ROS2.
     load_controllers_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
-            os.path.join(pkg_share, 'launch', 'load_ros2_controllers.launch.py')
+            os.path.join(go1_pkg_share_dir, 'launch', 'load_ros2_controllers.launch.py')
         ]),
         launch_arguments={
             'use_sim_time': use_sim_time
-        }.items(),
-        condition=IfCondition(load_controllers)
+        }.items()
     )
 
-    # Spawn the robot
+    # Spawn the robot in Gazebo
+    # Based on the '/robot_description' topic, Gazebo will spawn the robot in the world.
+    # It also connect ROS2 joint command from the joint controllers to the motor topic in Gazebo.
     start_gazebo_ros_spawner_cmd = Node(
         package='ros_gz_sim',
         executable='create',
@@ -202,7 +181,7 @@ def generate_launch_description():
             '-Y', yaw
         ])
 
-    # Publish the pointcloud from the depth camera
+    # Publish the pointcloud from the depth camera (face and top)
     go1_pointcloud_publisher_cmd = Node(
         package='go1_simulation',
         executable='publish_pointcloud.py',
@@ -224,13 +203,8 @@ def generate_launch_description():
 
     # Declare the launch options
     ld.add_action(declare_robot_name_cmd)
-    ld.add_action(declare_jsp_gui_cmd)
-    ld.add_action(declare_load_controllers_cmd)
-    ld.add_action(declare_use_gazebo_cmd)
-    ld.add_action(declare_use_rviz_cmd)
-    ld.add_action(declare_use_robot_state_pub_cmd)
     ld.add_action(declare_use_sim_time_cmd)
-    ld.add_action(declare_world_cmd)
+    ld.add_action(declare_world_file_name_cmd)
     ld.add_action(declare_use_gt_pose_cmd)
 
     # Add pose arguments

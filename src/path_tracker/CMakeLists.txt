@@ -75,7 +75,7 @@ ament_python_install_package(${PROJECT_NAME})
 
 install(
   PROGRAMS
-    path_tracker/move_robot.py
+    path_tracker/move_go1.py
   DESTINATION lib/${PROJECT_NAME}       
 )
 

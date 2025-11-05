@@ -173,13 +173,14 @@ In Rviz, you can see colored 3D pointcloud from RGB-D camera and red 2D pointclo
 <img src="images/start_rviz_1.png?v=1" alt="RViz Visualization 1" width="600"/>
 
 **Launch Arguments:**
-- `world_file:=<world_name>.world` - Choose world (hopital, empty, cafe, house) (Default: hospital)
-- `x:=0.0 y:=1.0 z:=0.5` - Initial robot position (Default: x=0.0, y=1.0, z=0.5)
 - `use_gt_pose` - Use Ground Truth (GT) pose of "trunk" link for localization (Data is from Gazebo)
+- `world_file_name:=<world_name>.world` - Choose world (hopital, empty, cafe, house) (Default: hospital)
+- `x:=0.0 y:=1.0 z:=0.5` - Initial robot position (meter) (Default: x=0.0, y=1.0, z=0.5)
+- `roll:=0.0 pitch:=0.0, yaw:=0.0` - Initial robot orientation (radian) (Default: roll=0.0, pitch=0.0, yaw=0.0)
 
 **Example:**
 ```bash
-ros2 launch go1_simulation go1.gazebo.launch.py use_gt_pose:=true world_file:=cafe.world x:=2.0 y:=3.0
+ros2 launch go1_simulation go1.gazebo.launch.py use_gt_pose:=true world_file_name:=empty.world x:=-1.0 y:=0.0 yaw:=1.57
 ```
 
 **⚠️ Important Reminder** 

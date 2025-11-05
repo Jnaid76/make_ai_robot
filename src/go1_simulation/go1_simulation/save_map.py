@@ -5,8 +5,10 @@ from rclpy.node import Node
 from slam_toolbox.srv import SaveMap
 from ament_index_python.packages import get_package_share_directory
 
+
 PKG_NAME = 'go1_simulation'
 MAP_BASENAME = 'my_world'  # change if you want a different filename
+
 
 def compute_src_maps_path(pkg_name: str) -> str:
     """
@@ -37,6 +39,7 @@ def compute_src_maps_path(pkg_name: str) -> str:
             ws_root = os.getcwd()
     return os.path.join(ws_root, 'src', pkg_name, 'maps')
 
+
 class MapSaver(Node):
     def __init__(self):
         super().__init__('save_map')
@@ -53,28 +56,30 @@ class MapSaver(Node):
         self.get_logger().info('Service available, sending request...')
 
         req = SaveMap.Request()
-        # IMPORTANT: SaveMap expects a std_msgs/String for 'name'
         req.name.data = self.target_base
 
         self.future = self.cli.call_async(req)
         self.future.add_done_callback(self._on_done)
 
+
     def _on_done(self, future):
         try:
             resp = future.result()
             if resp.result == 0:
-                self.get_logger().info(f"✅ Map saved: {self.target_base}.pgm/.yaml")
+                self.get_logger().info(f"Map saved: {self.target_base}.pgm/.yaml")
             else:
-                self.get_logger().error(f"❌ Map save failed (result code: {resp.result})")
+                self.get_logger().error(f"Map save failed (result code: {resp.result})")
         except Exception as e:
             self.get_logger().error(f"Service call failed: {e}")
         finally:
             rclpy.shutdown()
 
+
 def main(args=None):
     rclpy.init(args=args)
     node = MapSaver()
     rclpy.spin(node)
+
 
 if __name__ == '__main__':
     main()
