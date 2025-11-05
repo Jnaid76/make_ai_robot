@@ -26,6 +26,8 @@ RUN apt-get install -y \
     ros-${DISTRO}-xacro \
     ros-${DISTRO}-rosbag2-storage-mcap \
     ros-${DISTRO}-plotjuggler-ros \
+    ros-${DISTRO}-slam-toolbox \
+    ros-${DISTRO}-nav2-bringup \
     pipx \
     chrony \
     tmux python3-pip\
@@ -103,19 +105,9 @@ RUN echo "if [ -f ~/${WORKSPACE}/install/setup.bash ]; then source ~/${WORKSPACE
 RUN echo "export GZ_SIM_SYSTEM_PLUGIN_PATH=/opt/ros/jazzy/lib/" >> ~/.bashrc
 RUN sudo ln -s /usr/include/eigen3/Eigen /usr/include/Eigen
 
-# Clone the make_ai_robot repository
-RUN git clone https://github.com/roy9852/make_ai_robot.git /home/ros/${WORKSPACE}/src/make_ai_robot
-
-# Install dependencies using rosdep
+# Initialize rosdep (will install dependencies from mounted workspace at runtime)
 RUN sudo rosdep init || true
 RUN rosdep update
-RUN . /opt/ros/${DISTRO}/setup.sh && \
-    rosdep install -i --from-path /home/ros/${WORKSPACE}/src --rosdistro ${DISTRO} -y
-
-# Build the workspace
-RUN . /opt/ros/${DISTRO}/setup.sh && \
-    cd /home/ros/${WORKSPACE} && \
-    colcon build --symlink-install
 
 ENTRYPOINT ["/ros_entrypoint.sh"]
 # RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc

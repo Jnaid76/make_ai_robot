@@ -70,6 +70,8 @@ High-level locomotion controller for Unitree Go1 robot.
 
 ## 📥 Installation
 
+**If you want to use Docker (optional)**: Please refer to [docker/README.md](docker/README.md).
+
 ### Step 1: Clone the Repository
 
 ```bash

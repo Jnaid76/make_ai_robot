@@ -5,13 +5,17 @@ DISTRO=jazzy
 # Change these values to use different versions of ROS or different base images. The rest of the script should be left unchanged.
 BASE_IMAGE=osrf/ros
 BASE_TAG=$DISTRO-desktop-full
-IMAGE_NAME=craip_image
+IMAGE_NAME=craip25_image
 IMAGE_TAG=0.1
 
 USERNAME=ros
 USER_UID="$(id -u $USER)"
 USER_GID="$(id -g $USER)"
 WORKSPACE=craip_ws
+
+# Export environment variables for docker compose
+export IMAGE_NAME
+export IMAGE_TAG
 
 # =============================== Help Function ============================== #
 
@@ -45,8 +49,6 @@ done
 docker compose build \
 --build-arg BASE_IMAGE=$BASE_IMAGE \
 --build-arg BASE_TAG=$BASE_TAG \
---build-arg IMAGE_NAME=$IMAGE_NAME \
---build-arg IMAGE_TAG=$IMAGE_TAG \
 --build-arg USERNAME=$USERNAME \
 --build-arg USER_UID=$USER_UID \
 --build-arg USER_GID=$USER_GID \

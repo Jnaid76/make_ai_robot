@@ -1,5 +1,6 @@
 services:
   craip:
+    image: ${IMAGE_NAME:-craip25_image}:${IMAGE_TAG:-0.1}
     build:
       context: ./DockerFiles
       dockerfile: Dockerfile
@@ -7,8 +8,6 @@ services:
         - BASE_IMAGE=osrf/ros
         - BASE_TAG=jazzy-desktop-full
         - DISTRO=jazzy
-        - IMAGE_NAME=docker_control_simulation
-        - IMAGE_TAG=0.1
         - WORKSPACE=craip_ws
 
     container_name: craip25
@@ -42,7 +41,8 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       # - /tmp/.docker.xauth:/tmp/.docker.xauth:rw
       - ~/.bash_history:/home/ros/.bash_history
-      - ./src:/home/ros/docker_simulation_ws/src
+      # Mount the entire make_ai_robot workspace as craip_ws
+      - ..:/home/ros/craip_ws
       - /dev/input:/dev/input
       - /dev/dri:/dev/dri
       - /dev/nvidia0:/dev/nvidia0
@@ -54,7 +54,11 @@ services:
     command: >
       bash -c "
         source /opt/ros/jazzy/setup.bash &&
+        if [ -f /home/ros/craip_ws/install/setup.bash ]; then 
+          source /home/ros/craip_ws/install/setup.bash
+        fi &&
         echo 'ROS2 Jazzy environment loaded' &&
+        echo 'Workspace: /home/ros/craip_ws' &&
         bash
       "
     # devices:

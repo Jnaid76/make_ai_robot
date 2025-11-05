@@ -9,6 +9,8 @@ Controls:
   s: stop
   a: rotate left
   d: rotate right
+  i: increase speed
+  o: decrease speed
   q: quit
 
 Based on these commands:
@@ -52,6 +54,12 @@ class KeyboardController(Node):
         # Create publisher for velocity commands
         self.publisher = self.create_publisher(Twist, '/cmd_vel', 10)
         
+        # Speed control settings
+        self.speed_scale = 1.0  # Current speed multiplier
+        self.min_speed_scale = 0.1  # Minimum speed scale
+        self.max_speed_scale = 5.0  # Maximum speed scale
+        self.speed_increment = 0.1  # Speed change per key press
+        
         # Define key bindings
         self.key_bindings = {
             'w': {'linear_x': 0.2, 'angular_z': 0.0},    # Forward
@@ -75,7 +83,11 @@ class KeyboardController(Node):
         print("  s : Stop")
         print("  a : Rotate left")
         print("  d : Rotate right")
+        print("  i : Increase speed")
+        print("  o : Decrease speed")
         print("  q : Quit")
+        print("="*50)
+        print(f"Current speed scale: {self.speed_scale:.1f}x")
         print("="*50 + "\n")
 
     def publish_velocity(self, linear_x, angular_z):
@@ -87,15 +99,35 @@ class KeyboardController(Node):
             angular_z: Angular velocity around z axis
         """
         msg = Twist()
-        msg.linear.x = linear_x
+        msg.linear.x = linear_x * self.speed_scale
         msg.linear.y = 0.0
         msg.linear.z = 0.0
         msg.angular.x = 0.0
         msg.angular.y = 0.0
-        msg.angular.z = angular_z
+        msg.angular.z = angular_z * self.speed_scale
         
         self.publisher.publish(msg)
-        self.get_logger().info(f'Published: linear.x={linear_x}, angular.z={angular_z}')
+        self.get_logger().info(f'Published: linear.x={msg.linear.x:.2f}, angular.z={msg.angular.z:.2f} (scale: {self.speed_scale:.1f}x)')
+
+    def increase_speed(self):
+        """Increase the speed scale."""
+        old_scale = self.speed_scale
+        self.speed_scale = min(self.speed_scale + self.speed_increment, self.max_speed_scale)
+        if old_scale != self.speed_scale:
+            print(f"\n>>> Speed increased to {self.speed_scale:.1f}x <<<")
+            self.get_logger().info(f'Speed scale increased to {self.speed_scale:.1f}x')
+        else:
+            print(f"\n>>> Already at maximum speed ({self.max_speed_scale:.1f}x) <<<")
+
+    def decrease_speed(self):
+        """Decrease the speed scale."""
+        old_scale = self.speed_scale
+        self.speed_scale = max(self.speed_scale - self.speed_increment, self.min_speed_scale)
+        if old_scale != self.speed_scale:
+            print(f"\n>>> Speed decreased to {self.speed_scale:.1f}x <<<")
+            self.get_logger().info(f'Speed scale decreased to {self.speed_scale:.1f}x')
+        else:
+            print(f"\n>>> Already at minimum speed ({self.min_speed_scale:.1f}x) <<<")
 
     def get_key(self):
         """
@@ -124,6 +156,12 @@ class KeyboardController(Node):
                     self.publish_velocity(0.0, 0.0)
                     self.get_logger().info('Quitting...')
                     break
+                elif key == 'i':
+                    # Increase speed
+                    self.increase_speed()
+                elif key == 'o':
+                    # Decrease speed
+                    self.decrease_speed()
                 elif key in self.key_bindings:
                     # Publish corresponding velocity
                     binding = self.key_bindings[key]
