@@ -1,6 +1,8 @@
-# Creating Robot Artificial Intelligence Project (CRAIP)
+# CRAIP: Creating Robot Artificial Intelligence Project
 
-This repository is for ROS2 practice of Fall 2025 "Creating Robot Artificial Intelligence Project" class.
+CRAIP is the final project for Seoul National University's **"How to Make a Robot with Artificial Intelligence (M2177.002600), Fall 2025"** course.
+
+CRAIP is developed using the Language-Image-based Mobile Robot (LIMBO) framework, designed to enable robots to perform navigation tasks based on language instructions.
 
 It contains a collection of ROS2 packages for controlling the Unitree Go1 quadruped robot in Gazebo simulation environment.
 
