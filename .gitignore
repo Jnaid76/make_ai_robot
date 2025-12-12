@@ -7,3 +7,4 @@ v-hacd/
 /src/astar_planner/
 .env
 *.db3
+**/*.db3
