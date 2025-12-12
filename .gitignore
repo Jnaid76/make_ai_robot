@@ -5,3 +5,5 @@ log/
 v-hacd/
 /src/localization/
 /src/astar_planner/
+.env
+*.db3
