@@ -11,7 +11,7 @@ FeetEndCal::FeetEndCal(CtrlComponents *ctrlComp)
 
     _kx = 0.005;
     _ky = 0.005;
-    _kyaw = 0.005;
+    _kyaw = 0.02;  // Increased from 0.005 to improve rotation stability
 
     Vec34 feetPosBody = _robModel->getFeetPosIdeal();
     for(int i(0); i<4; ++i){

@@ -1,0 +1,10 @@
+Running IMU-only n_particles=500 ... ATE=2.6929
+Running IMU-only n_particles=1000 ... ATE=1.9539
+Running IMU-only n_particles=2000 ... ATE=1.0106
+
+IMU-only results:
+n_particles  ATE      ATE_x    ATE_y    MeanErr 
+------------------------------------------------------------
+2000         1.0106   0.3371   0.9528   0.9092  
+1000         1.9539   1.6325   1.0736   1.7245  
+500          2.6929   1.6472   2.1304   2.1058  
