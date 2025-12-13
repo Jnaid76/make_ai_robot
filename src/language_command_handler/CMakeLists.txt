@@ -28,6 +28,9 @@ install(
     language_command_handler/go_front.py
     language_command_handler/go_back.py
     language_command_handler/stop.py
+    language_command_handler/navigate_to_goal.py
+    language_command_handler/navigate_to_toilet_and_bark.py
+    language_command_handler/navigate_to_cone.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
