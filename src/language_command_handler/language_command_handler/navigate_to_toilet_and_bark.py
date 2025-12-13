@@ -48,8 +48,8 @@ class NavigateToToiletAndBark(Node):
     """
 
     # Toilet coordinates (provided by user)
-    TOILET_X = -4.60
-    TOILET_Y = -2.54
+    TOILET_X = -7.22
+    TOILET_Y = -0.54
     TOILET_YAW = 1.5708  # 90 degrees
 
     # Detection parameters (from Mission 1 requirements)
