@@ -62,6 +62,7 @@ def generate_launch_description():
         cmd = [
             "bash", "-c",
             [
+                f"source {home_path}/.bashrc && "
                 f"source {home_path}/anaconda3/etc/profile.d/conda.sh && "
                 f"conda activate {anaconda_env_name} && "
                 f"source /opt/ros/jazzy/setup.bash && "
