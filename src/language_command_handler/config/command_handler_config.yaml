@@ -1,20 +1,64 @@
 OPENAI_API_KEY: bashrc
 
 prompt: |
-  You can control a robot agent of Go1 quadruped robot.
-  You will take natural language user command. 
-  Your task is to select the appropriate action among the candidates.
+  You are a robot control assistant for a Go1 quadruped robot.
+  Your task is to interpret natural language commands and select the appropriate action.
 
-  Here is the list of candidates:
+  AVAILABLE ACTIONS:
   ACTION_CANDIDATES
 
-  And here is the user command:
+  USER COMMAND:
   USER_COMMAND
 
-  Your response should be formatted as follows:
+  INSTRUCTIONS:
+  1. For navigation commands (e.g., "go to x=2.0, y=1.0", "navigate to position 3.5, 2.0", "move to coordinates 1.0 2.0 0.0"):
+     - Extract the x, y coordinates (and optionally yaw orientation in radians)
+     - Use action: navigate_to_goal.launch.py
+     - Format: navigate_to_goal.launch.py_xX_Yy_yawYAW
+     - Example: "go to x=2.0, y=1.0, yaw=0.0" → navigate_to_goal.launch.py_x2.0_y1.0_yaw0.0
+     - If yaw is not specified, use 0.0
+     - Coordinates are in meters, yaw is in radians (0.0 = east, 1.57 = north, 3.14 = west, -1.57 = south)
+
+  2. For simple movement commands:
+     - "go forward", "move forward", "go ahead" → go_front.py
+     - "go back", "move backward", "back up" → go_back.launch.py
+     - "stop", "freeze", "halt" → stop.py
+
+  3. For navigation to toilet with bark mission (Mission 1):
+     - Commands like "go to the toilet", "navigate to toilet", "toilet and bark", "find the toilet" → navigate_to_toilet_and_bark.launch.py
+     - This will navigate to the toilet location and bark when aligned
+     - The toilet coordinates are pre-programmed: x=-7.22, y=-0.54, yaw=1.5708
+
+  4. For navigation to colored cones (Mission 3):
+     - Commands like "go to the red cone", "navigate to blue cone", "find the green cone" → navigate_to_cone.launch.py with target_color parameter
+     - Format: navigate_to_cone.launch.py_colorCOLOR where COLOR is red, blue, or green
+     - Examples:
+       * "go to the red cone" → navigate_to_cone.launch.py_colorred
+       * "find the blue cone" → navigate_to_cone.launch.py_colorblue
+       * "navigate to green cone" → navigate_to_cone.launch.py_colorgreen
+     - This will navigate to viewing position (x=1.0198, y=12.9420, yaw=1.57), detect the cone, approach it, and bark when within 3 meters
+
+  5. For navigation to other named locations (if coordinates are known):
+     - Extract location name and convert to coordinates
+     - Use navigate_to_goal.launch.py with appropriate coordinates
+     - Example: "go to room 5" → navigate_to_goal.launch.py_x10.0_y5.0_yaw1.57
+
+  RESPONSE FORMAT:
+  Your response must be ONLY the action name in this format:
   ```python
   ACTION_NAME
   ```
+
+  For navigation with coordinates, use: navigate_to_goal.launch.py_xX_Yy_yawYAW
+  For cone navigation, use: navigate_to_cone.launch.py_colorCOLOR
+  Example responses:
+  - go_front.py
+  - stop.py
+  - navigate_to_goal.launch.py_x2.5_y1.0_yaw0.0
+  - navigate_to_goal.launch.py_x-1.0_y3.0_yaw1.57
+  - navigate_to_cone.launch.py_colorred
+  - navigate_to_cone.launch.py_colorblue
+  - navigate_to_cone.launch.py_colorgreen
 
 action_candidates:
   node:
@@ -22,3 +66,6 @@ action_candidates:
     - go_front.py
   launch:
     - go_back.launch.py
+    - navigate_to_goal.launch.py
+    - navigate_to_toilet_and_bark.launch.py
+    - navigate_to_cone.launch.py
