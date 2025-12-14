@@ -1,0 +1,13 @@
+banana
+apple
+pizza
+rotten_banana
+rotten_apple
+rotten_pizza
+stop_sign
+nurse
+cone_red
+cone_green
+cone_blue
+delivery_box
+
