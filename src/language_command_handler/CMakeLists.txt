@@ -29,6 +29,8 @@ install(
     language_command_handler/go_back.py
     language_command_handler/stop.py
     language_command_handler/navigate_to_toilet_and_bark.py
+    language_command_handler/navigate_to_cone.py
+    language_command_handler/find_edible_food.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
