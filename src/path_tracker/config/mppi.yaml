@@ -15,27 +15,24 @@ path_tracker:
     NX: 4                        # State dimension [x, y, velocity, yaw]
     NU: 2                        # Control input dimension [linear_vel, angular_vel]
     K: 500                       # Number of sample trajectories
-    T: 30                        # Prediction horizon steps (increased for better lookahead)
+    T: 20                        # Prediction horizon steps
     DT: 0.1                      # Time step (seconds)
     DL: 0.1                      # Distance step for path discretization
-
-    Lam: 18.0                    # Temperature parameter (increased for smoother behavior)
-    Gam: 0.95                    # Discount factor (increased to consider future costs more)
-
+    
+    Lam: 12.5                    # Temperature parameter for MPPI (lower = more exploitation)
+    Gam: 0.9                     # Discount factor for cost-to-go
+    
     # Covariance for sampling control inputs [linear_vel, angular_vel]
-    # Keep low to prevent jerky samples
-    Cov: [0.03, 0.03]
-
+    Cov: [0.05, 0.10]
+    
     # State cost matrix weights [x, y, velocity, yaw]
-    # Reduce position tracking aggressiveness
-    Q: [10.0, 10.0, 20.0, 8.0]
-
+    Q: [15.0, 15.0, 30.0, 10.0]
+    
     # Terminal state cost matrix weights [x, y, velocity, yaw]
-    Qf: [5.0, 5.0, 15.0, 8.0]
-
+    Qf: [5.0, 5.0, 30.0, 10.0]
+    
     # Control input cost matrix weights [linear_vel, angular_vel]
-    # Heavily penalize both linear and angular accelerations for smoothness
-    R: [2.0, 3.0]
+    R: [1.0, 0.5]
 
     subgoal_cost_weight: 0.0
     velocity_cost_weight: 0.0
@@ -50,7 +47,7 @@ path_tracker:
     # Path Tracking Parameters
     # ===========================================================================
     
-    target_speed: 0.20           # Target forward speed (m/s) - reduced for smoother tracking
+    target_speed: 0.2            # Target forward speed (m/s)
     n_ind_search: 30             # Number of indices to search for nearest path point
     tracking_thres: 5.0          # Maximum tracking error threshold (m)
     goal_thres: 0.5              # Goal reached threshold (m)
@@ -75,8 +72,8 @@ path_tracker:
     wheelRadius: 0.1785          # Effective wheel radius (m)
     wheelBase: 0.512             # Distance between front and rear (m)
     
-    maxLinVel: 0.35              # Maximum linear velocity (m/s) - reduced for stability
-    maxAngVel: 0.50              # Maximum angular velocity (rad/s) - reduced to prevent collapse
+    maxLinVel: 0.25              # Maximum linear velocity (m/s)
+    maxAngVel: 0.2               # Maximum angular velocity (rad/s) - reduced for stability
     
     # ===========================================================================
     # Coordinate Frames

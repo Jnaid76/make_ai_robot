@@ -17,7 +17,7 @@ import math
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
-from geometry_msgs.msg import PoseStamped, Quaternion
+from geometry_msgs.msg import PoseStamped, Quaternion, Twist
 from nav_msgs.msg import Path, OccupancyGrid
 from std_msgs.msg import String
 # from sensor_msgs.msg import Image  # Not needed - using hardcoded position only
@@ -28,16 +28,17 @@ import sys
 
 # Import A* planner
 try:
-    from ament_index_python.packages import get_package_share_directory
-    path_tracker_share = get_package_share_directory('path_tracker')
-    path_tracker_python_path = os.path.join(path_tracker_share, '..', '..', 'src', 'path_tracker', 'path_tracker')
-    if os.path.exists(path_tracker_python_path):
-        sys.path.insert(0, path_tracker_python_path)
-    from astar_planner import AStarPlanner
-except (ImportError, Exception) as e:
+    # Try direct import from installed package
+    from path_tracker.path_tracker.astar_planner import AStarPlanner
+except ImportError:
     try:
-        from path_tracker.astar_planner import AStarPlanner
-    except ImportError:
+        # Try workspace source path
+        workspace_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
+        astar_path = os.path.join(workspace_path, 'src', 'path_tracker', 'path_tracker')
+        if os.path.exists(astar_path) and astar_path not in sys.path:
+            sys.path.insert(0, astar_path)
+        from astar_planner import AStarPlanner
+    except (ImportError, Exception) as e:
         print(f"Warning: Could not import AStarPlanner ({e}). Using straight-line path planning.")
         AStarPlanner = None
 
@@ -75,6 +76,11 @@ class NavigateToToiletAndBark(Node):
         self.path_published = False
         self.navigation_complete = False
         self.toilet_detected = False
+        self.rotation_complete = False
+
+        # Rotation parameters
+        self.rotation_threshold = 0.1  # radians (~5.7 degrees)
+        self.rotation_speed = 0.3  # angular velocity for rotation (balanced speed)
 
         # CV Bridge not needed - using position-based detection only
         # self.bridge = CvBridge()
@@ -136,6 +142,16 @@ class NavigateToToiletAndBark(Node):
             10
         )
 
+        # Publish velocity commands for rotation
+        self.vel_pub = self.create_publisher(
+            Twist,
+            '/cmd_vel',
+            10
+        )
+
+        # Timer for rotation control
+        self.rotation_timer = self.create_timer(0.1, self.rotation_callback)
+
         self.get_logger().info('Mission node initialized. Waiting for robot pose and map...')
 
     def map_callback(self, msg: OccupancyGrid):
@@ -171,33 +187,76 @@ class NavigateToToiletAndBark(Node):
 
     def pose_callback(self, msg: PoseStamped):
         """Callback for robot pose updates."""
+        self.robot_pose = msg
+
         if self.robot_pose is None:
-            self.robot_pose = msg
             self.get_logger().info(
                 f'Robot pose received: x={msg.pose.position.x:.3f}, y={msg.pose.position.y:.3f}'
             )
 
-            if not self.path_published:
-                if self.planner is None or self.map_received:
+        # Check if we've reached the toilet location
+        if not self.navigation_complete and self.rotation_complete:
+            distance_to_goal = math.sqrt(
+                (msg.pose.position.x - self.TOILET_X)**2 +
+                (msg.pose.position.y - self.TOILET_Y)**2
+            )
+
+            if distance_to_goal < 0.5:  # Within 50cm of goal
+                self.navigation_complete = True
+                self.get_logger().info('✓ Navigation complete! Reached toilet location.')
+
+                # Bark immediately upon arrival (no camera detection needed)
+                if not self.toilet_detected:
+                    self.publish_bark()
+                    self.toilet_detected = True
+
+    def rotation_callback(self):
+        """Timer callback to handle initial rotation towards goal."""
+        if self.robot_pose is None:
+            return
+
+        # If already rotated and path published, stop rotating
+        if self.rotation_complete:
+            return
+
+        # Check if map is ready (if using A* planner)
+        # Skip map check - use manual waypoints if no map available
+        # if self.planner is not None and not self.map_received:
+        #     return
+
+        # Calculate angle to goal
+        current_yaw = self.quaternion_to_yaw(self.robot_pose.pose.orientation)
+        dx = self.TOILET_X - self.robot_pose.pose.position.x
+        dy = self.TOILET_Y - self.robot_pose.pose.position.y
+        desired_yaw = math.atan2(dy, dx)
+
+        # Calculate angle difference
+        angle_diff = self.normalize_angle(desired_yaw - current_yaw)
+
+        # Check if rotation is complete
+        if abs(angle_diff) < self.rotation_threshold:
+            if not self.rotation_complete:
+                # Stop rotation
+                stop_msg = Twist()
+                self.vel_pub.publish(stop_msg)
+
+                self.rotation_complete = True
+                self.get_logger().info(f'✓ Rotation complete! Aligned with goal (error: {math.degrees(angle_diff):.1f}°)')
+
+                # Now publish the navigation path
+                if not self.path_published:
                     self.generate_and_publish_path()
         else:
-            self.robot_pose = msg
+            # Continue rotating (pure rotation, no forward motion)
+            twist = Twist()
+            twist.linear.x = 0.0  # No forward motion during rotation
+            twist.angular.z = self.rotation_speed if angle_diff > 0 else -self.rotation_speed
+            self.vel_pub.publish(twist)
 
-            # Check if we've reached the toilet location
-            if not self.navigation_complete:
-                distance_to_goal = math.sqrt(
-                    (msg.pose.position.x - self.TOILET_X)**2 +
-                    (msg.pose.position.y - self.TOILET_Y)**2
-                )
-
-                if distance_to_goal < 0.5:  # Within 50cm of goal
-                    self.navigation_complete = True
-                    self.get_logger().info('✓ Navigation complete! Reached toilet location.')
-
-                    # Bark immediately upon arrival (no camera detection needed)
-                    if not self.toilet_detected:
-                        self.publish_bark()
-                        self.toilet_detected = True
+            if not hasattr(self, '_last_rotation_log') or \
+               (self.get_clock().now() - self._last_rotation_log).nanoseconds > 1e9:  # Log every 1 second
+                self.get_logger().info(f'Rotating towards goal... (angle error: {math.degrees(angle_diff):.1f}°)')
+                self._last_rotation_log = self.get_clock().now()
 
     # Camera callback removed - using position-based bark trigger only
     # def camera_callback(self, msg: Image):
@@ -247,9 +306,10 @@ class NavigateToToiletAndBark(Node):
             self.get_logger().warn('Cannot generate path: Robot pose not available')
             return
 
-        if self.planner is not None and not self.map_received:
-            self.get_logger().warn('Cannot generate path: Map not received yet')
-            return
+        # Commented out - use manual waypoints if map not available
+        # if self.planner is not None and not self.map_received:
+        #     self.get_logger().warn('Cannot generate path: Map not received yet')
+        #     return
 
         x_start = self.robot_pose.pose.position.x
         y_start = self.robot_pose.pose.position.y
@@ -260,8 +320,8 @@ class NavigateToToiletAndBark(Node):
         self.get_logger().info(f'  From: ({x_start:.3f}, {y_start:.3f}, {math.degrees(yaw_start):.1f}°)')
         self.get_logger().info(f'  To:   ({self.TOILET_X:.3f}, {self.TOILET_Y:.3f}, {math.degrees(self.TOILET_YAW):.1f}°)')
 
-        # Use A* if available
-        if self.planner is not None:
+        # Use A* if available and map is loaded
+        if self.planner is not None and self.map_received:
             self.get_logger().info('Using A* algorithm for collision-free path planning')
             path_waypoints = self.planner.plan_path(x_start, y_start, self.TOILET_X, self.TOILET_Y, start_yaw=yaw_start)
 
@@ -397,77 +457,90 @@ class NavigateToToiletAndBark(Node):
                 yaw = self.TOILET_YAW
 
             pose_stamped.pose.orientation = self.yaw_to_quaternion(yaw)
+
+            # Override frame_id to "D" (Drive/Forward) to prevent backward motion
+            # The path tracker uses frame_id to determine gear:
+            # "D" = forward, "R" = reverse, "N" = neutral
+            # This ensures robot always rotates in place first, then moves forward
+            pose_stamped.header.frame_id = "D"
+
             path.poses.append(pose_stamped)
 
         return path
 
     def generate_smooth_path_straightline(self):
-        """Generate smooth straight-line path using cubic Hermite splines."""
+        """Generate path with manual waypoints to avoid walls (fallback when A* not available)."""
         x_start = self.robot_pose.pose.position.x
         y_start = self.robot_pose.pose.position.y
         yaw_start = self.quaternion_to_yaw(self.robot_pose.pose.orientation)
 
-        distance = math.sqrt((self.TOILET_X - x_start)**2 + (self.TOILET_Y - y_start)**2)
+        # Manual waypoints to avoid walls in hospital world
+        # Detailed route around obstacles
+        waypoints = [
+            (x_start, y_start),    # Start position (0, 1)
+            (-2.0, 1.0),          # WP1: Move west
+            (-4.0, 1.0),          # WP2: Continue west
+            (-5.0, 0.5),          # WP3: Start turning south
+            (-5.0, -1.0),         # WP4: Move south
+            (-5.0, -3.0),         # WP5: Continue south
+            (-5.0, -5.0),         # WP6: Continue south
+            (-5.0, -7.0),         # WP7: Continue south
+            (-5.0, -8.5),         # WP8: Continue south
+            (-5.5, -9.0),         # WP9: Start turning west
+            (-7.3, -9.0),         # WP10: Move west along bottom
+            (-7.3, -7.0),         # WP11: Turn north
+            (-7.3, -5.0),         # WP12: Continue north
+            (-7.3, -3.0),         # WP13: Continue north
+            (-7.3, -1.0),         # WP14: Continue north
+            (-7.3, 0.0),          # WP15: Final approach to toilet
+            (self.TOILET_X, self.TOILET_Y)  # Final: Toilet location (-7.22, -0.54)
+        ]
 
+        self.get_logger().info(f'  Using {len(waypoints)} manual waypoints to avoid obstacles')
+
+        # Generate smooth path through waypoints
         path = Path()
         path.header.frame_id = "map"
         path.header.stamp = self.get_clock().now().to_msg()
 
-        num_points = max(60, min(100, int(distance * 20)))
-        self.get_logger().info(f'  Distance: {distance:.3f}m with {num_points} waypoints')
-
-        # Control point scaling
-        control_scale = min(distance * 0.5, 2.0)
-        cx0 = x_start + control_scale * math.cos(yaw_start)
-        cy0 = y_start + control_scale * math.sin(yaw_start)
-        cx1 = self.TOILET_X - control_scale * math.cos(self.TOILET_YAW)
-        cy1 = self.TOILET_Y - control_scale * math.sin(self.TOILET_YAW)
-
-        for i in range(num_points + 1):
-            t = i / num_points
-
-            # Cubic Hermite basis functions
-            h00 = 2*t**3 - 3*t**2 + 1
-            h10 = t**3 - 2*t**2 + t
-            h01 = -2*t**3 + 3*t**2
-            h11 = t**3 - t**2
-
-            pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = "map"
-            pose_stamped.header.stamp = self.get_clock().now().to_msg()
-
-            tangent_x0 = cx0 - x_start
-            tangent_y0 = cy0 - y_start
-            tangent_x1 = self.TOILET_X - cx1
-            tangent_y1 = self.TOILET_Y - cy1
-
-            pose_stamped.pose.position.x = (h00 * x_start + h10 * tangent_x0 +
-                                           h01 * self.TOILET_X + h11 * tangent_x1)
-            pose_stamped.pose.position.y = (h00 * y_start + h10 * tangent_y0 +
-                                           h01 * self.TOILET_Y + h11 * tangent_y1)
-            pose_stamped.pose.position.z = 0.0
-
-            # Compute orientation
-            if i < num_points:
-                t_next = (i + 1) / num_points
-                h00_next = 2*t_next**3 - 3*t_next**2 + 1
-                h10_next = t_next**3 - 2*t_next**2 + t_next
-                h01_next = -2*t_next**3 + 3*t_next**2
-                h11_next = t_next**3 - t_next**2
-
-                x_next = (h00_next * x_start + h10_next * tangent_x0 +
-                         h01_next * self.TOILET_X + h11_next * tangent_x1)
-                y_next = (h00_next * y_start + h10_next * tangent_y0 +
-                         h01_next * self.TOILET_Y + h11_next * tangent_y1)
-
-                dx = x_next - pose_stamped.pose.position.x
-                dy = y_next - pose_stamped.pose.position.y
-                tangent_yaw = math.atan2(dy, dx)
-            else:
-                tangent_yaw = self.TOILET_YAW
-
-            pose_stamped.pose.orientation = self.yaw_to_quaternion(tangent_yaw)
-            path.poses.append(pose_stamped)
+        # Interpolate between waypoints with smooth curves
+        points_per_segment = 20
+        
+        for i in range(len(waypoints) - 1):
+            x0, y0 = waypoints[i]
+            x1, y1 = waypoints[i + 1]
+            
+            for j in range(points_per_segment):
+                t = j / points_per_segment
+                
+                pose_stamped = PoseStamped()
+                pose_stamped.header.frame_id = "D"  # Force forward gear
+                pose_stamped.header.stamp = self.get_clock().now().to_msg()
+                
+                # Linear interpolation between waypoints
+                pose_stamped.pose.position.x = x0 + t * (x1 - x0)
+                pose_stamped.pose.position.y = y0 + t * (y1 - y0)
+                pose_stamped.pose.position.z = 0.0
+                
+                # Calculate orientation towards next waypoint
+                dx = x1 - x0
+                dy = y1 - y0
+                yaw = math.atan2(dy, dx)
+                pose_stamped.pose.orientation = self.yaw_to_quaternion(yaw)
+                
+                path.poses.append(pose_stamped)
+        
+        # Add final point
+        final_pose = PoseStamped()
+        final_pose.header.frame_id = "D"
+        final_pose.header.stamp = self.get_clock().now().to_msg()
+        final_pose.pose.position.x = self.TOILET_X
+        final_pose.pose.position.y = self.TOILET_Y
+        final_pose.pose.position.z = 0.0
+        final_pose.pose.orientation = self.yaw_to_quaternion(self.TOILET_YAW)
+        path.poses.append(final_pose)
+        
+        self.get_logger().info(f'  Generated path with {len(path.poses)} interpolated points')
 
         return path
 
