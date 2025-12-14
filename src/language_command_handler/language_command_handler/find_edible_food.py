@@ -101,6 +101,7 @@ class FindEdibleFood(Node):
         self.current_state = self.STATE_NAVIGATING_TO_ROOM
         self.current_room_index = 0
         self.mission_success = False
+        self.rotation_complete = False
 
         # Detection variables
         self.latest_labels = []
@@ -112,6 +113,13 @@ class FindEdibleFood(Node):
         self.scan_detections = []
         self.search_start_yaw = None
         self.target_yaw = None  # For rotating to face selected object
+
+        # Rotation parameters (from toilet navigation logic)
+        self.rotation_threshold = 0.1  # radians (~5.7 degrees)
+        self.rotation_speed = 0.3  # angular velocity for rotation
+        self.current_goal_x = None
+        self.current_goal_y = None
+        self.current_goal_yaw = None
 
         # Initialize A* planner
         self.planner = None
@@ -189,6 +197,9 @@ class FindEdibleFood(Node):
         # Timer for state machine updates
         self.timer = self.create_timer(0.5, self.state_machine_update)
 
+        # Timer for rotation control (from toilet navigation logic)
+        self.rotation_timer = self.create_timer(0.1, self.rotation_callback)
+
         self.get_logger().info('Mission node initialized. Waiting for robot pose and map...')
 
     def map_callback(self, msg: OccupancyGrid):
@@ -203,11 +214,20 @@ class FindEdibleFood(Node):
         origin_y = msg.info.origin.position.y
         width = msg.info.width
         height = msg.info.height
-        map_data = list(msg.data)
 
-        self.planner.set_map(map_data, width, height, resolution, origin_x, origin_y)
+        map_data = np.array(msg.data, dtype=np.int8).reshape((height, width))
+
+        map_metadata = {
+            'resolution': resolution,
+            'origin_x': origin_x,
+            'origin_y': origin_y,
+            'width': width,
+            'height': height
+        }
+
+        self.planner.set_map(map_data, map_metadata)
         self.map_received = True
-        self.get_logger().info(f'Map configured: {width}x{height}, resolution={resolution:.3f}m')
+        self.get_logger().info(f'Map loaded: {width}x{height}, resolution={resolution:.3f}m')
 
     def pose_callback(self, msg: PoseStamped):
         """Callback for robot pose updates."""
@@ -290,19 +310,8 @@ class FindEdibleFood(Node):
         # Densify path for smooth tracking (3 points per meter)
         densified_waypoints = self.densify_path(waypoints, points_per_meter=3.0)
 
-        # Create Path message
-        path_msg = Path()
-        path_msg.header.stamp = self.get_clock().now().to_msg()
-        path_msg.header.frame_id = 'map'
-
-        for wx, wy, wyaw in densified_waypoints:
-            pose = PoseStamped()
-            pose.header = path_msg.header
-            pose.pose.position.x = wx
-            pose.pose.position.y = wy
-            pose.pose.position.z = 0.0
-            pose.pose.orientation = self.yaw_to_quaternion(wyaw if wyaw is not None else 0.0)
-            path_msg.poses.append(pose)
+        # Create Path message using toilet navigation logic
+        path_msg = self.waypoints_to_path(densified_waypoints, goal_yaw)
 
         self.path_pub.publish(path_msg)
         self.get_logger().info(f'Published path with {len(path_msg.poses)} waypoints')
@@ -313,13 +322,28 @@ class FindEdibleFood(Node):
         densified = []
 
         for i in range(len(waypoints) - 1):
-            x1, y1, yaw1 = waypoints[i]
-            x2, y2, yaw2 = waypoints[i + 1]
+            # Handle both (x, y, yaw) and (x, y) formats
+            if len(waypoints[i]) == 3:
+                x1, y1, yaw1 = waypoints[i]
+            else:
+                x1, y1 = waypoints[i]
+                yaw1 = None
+
+            if len(waypoints[i + 1]) == 3:
+                x2, y2, yaw2 = waypoints[i + 1]
+            else:
+                x2, y2 = waypoints[i + 1]
+                yaw2 = None
 
             densified.append((x1, y1, yaw1))
 
             # Calculate distance between waypoints
             dist = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+
+            # Skip densification for rotation waypoints (same position)
+            if dist < 0.01:
+                continue
+
             num_points = max(1, int(dist * points_per_meter))
 
             # Add intermediate points
@@ -327,17 +351,124 @@ class FindEdibleFood(Node):
                 t = j / num_points
                 x = x1 + t * (x2 - x1)
                 y = y1 + t * (y2 - y1)
-                # Interpolate yaw if both are defined
-                if yaw1 is not None and yaw2 is not None:
-                    yaw = yaw1 + t * self.normalize_angle(yaw2 - yaw1)
-                else:
-                    yaw = math.atan2(y2 - y1, x2 - x1)
-                densified.append((x, y, yaw))
+                # Don't interpolate yaw for movement waypoints (will be computed from direction)
+                densified.append((x, y, None))
 
         # Add final waypoint
         densified.append(waypoints[-1])
 
         return densified
+
+    def waypoints_to_path(self, waypoints: list, goal_yaw: float) -> Path:
+        """Convert waypoints to ROS Path message (from toilet navigation logic)."""
+        path = Path()
+        path.header.frame_id = "map"
+        path.header.stamp = self.get_clock().now().to_msg()
+
+        for i, waypoint in enumerate(waypoints):
+            # Handle both (x, y, yaw) and (x, y) tuple formats
+            if len(waypoint) == 3:
+                x, y, explicit_yaw = waypoint
+            else:
+                x, y = waypoint
+                explicit_yaw = None
+
+            pose_stamped = PoseStamped()
+            pose_stamped.header.frame_id = "map"
+            pose_stamped.header.stamp = self.get_clock().now().to_msg()
+
+            pose_stamped.pose.position.x = float(x)
+            pose_stamped.pose.position.y = float(y)
+            pose_stamped.pose.position.z = 0.0
+
+            # Use explicit yaw if provided (for rotation waypoints), otherwise compute from path
+            if explicit_yaw is not None:
+                yaw = explicit_yaw
+            elif i < len(waypoints) - 1:
+                # Calculate orientation towards next waypoint
+                next_waypoint = waypoints[i + 1]
+                next_x = next_waypoint[0]
+                next_y = next_waypoint[1]
+
+                # Only compute yaw if there's actual movement
+                dx = next_x - x
+                dy = next_y - y
+                if abs(dx) > 0.001 or abs(dy) > 0.001:
+                    yaw = math.atan2(dy, dx)
+                else:
+                    # No movement - use previous or goal yaw
+                    if i > 0 and len(path.poses) > 0:
+                        yaw = self.quaternion_to_yaw(path.poses[i-1].pose.orientation)
+                    else:
+                        yaw = goal_yaw
+            else:
+                yaw = goal_yaw
+
+            pose_stamped.pose.orientation = self.yaw_to_quaternion(yaw)
+
+            # Override frame_id to "D" (Drive/Forward) to prevent backward motion
+            # The path tracker uses frame_id to determine gear:
+            # "D" = forward, "R" = reverse, "N" = neutral
+            # This ensures robot always rotates in place first, then moves forward
+            pose_stamped.header.frame_id = "D"
+
+            path.poses.append(pose_stamped)
+
+        return path
+
+    def rotation_callback(self):
+        """Timer callback to handle initial rotation towards goal (from toilet navigation logic)."""
+        if self.robot_pose is None:
+            return
+
+        # Only rotate when navigating to room and not yet rotated
+        if self.current_state != self.STATE_NAVIGATING_TO_ROOM or self.rotation_complete:
+            return
+
+        # Set goal if not set yet (for current room)
+        if self.current_goal_x is None and self.current_room_index < len(self.ROOM_COORDINATES):
+            room = self.ROOM_COORDINATES[self.current_room_index]
+            self.current_goal_x = room['x']
+            self.current_goal_y = room['y']
+            self.current_goal_yaw = room['yaw']
+
+        if self.current_goal_x is None:
+            return
+
+        # Calculate angle to goal
+        current_yaw = self.quaternion_to_yaw(self.robot_pose.pose.orientation)
+        dx = self.current_goal_x - self.robot_pose.pose.position.x
+        dy = self.current_goal_y - self.robot_pose.pose.position.y
+        desired_yaw = math.atan2(dy, dx)
+
+        # Calculate angle difference
+        angle_diff = self.normalize_angle(desired_yaw - current_yaw)
+
+        # Check if rotation is complete
+        if abs(angle_diff) < self.rotation_threshold:
+            if not self.rotation_complete:
+                # Stop rotation
+                stop_msg = Twist()
+                self.vel_pub.publish(stop_msg)
+
+                self.rotation_complete = True
+                self.get_logger().info(f'✓ Rotation complete! Aligned with goal (error: {math.degrees(angle_diff):.1f}°)')
+
+                # Now publish the navigation path
+                if not self.path_published:
+                    room = self.ROOM_COORDINATES[self.current_room_index]
+                    self.generate_and_publish_path(room['x'], room['y'], room['yaw'])
+        else:
+            # Continue rotating (pure rotation, no forward motion)
+            twist = Twist()
+            twist.linear.x = 0.0  # No forward motion during rotation
+            twist.angular.z = self.rotation_speed if angle_diff > 0 else -self.rotation_speed
+            self.vel_pub.publish(twist)
+
+            if not hasattr(self, '_last_rotation_log') or \
+               (self.get_clock().now() - self._last_rotation_log).nanoseconds > 1e9:  # Log every 1 second
+                self.get_logger().info(f'Rotating towards Room {self.current_room_index + 1}... (angle error: {math.degrees(angle_diff):.1f}°)')
+                self._last_rotation_log = self.get_clock().now()
 
     def state_machine_update(self):
         """Main state machine update (called every 0.5s)."""
@@ -362,18 +493,9 @@ class FindEdibleFood(Node):
 
     def handle_navigating_to_room(self):
         """Navigate to current room waypoint."""
-        if not self.path_published:
-            room = self.ROOM_COORDINATES[self.current_room_index]
-            self.get_logger().info(f'Starting navigation to Room {self.current_room_index + 1}/{len(self.ROOM_COORDINATES)}')
-            self.get_logger().info(f'Target: x={room["x"]:.2f}, y={room["y"]:.2f}, yaw={room["yaw"]:.2f}')
-
-            path = self.generate_and_publish_path(room['x'], room['y'], room['yaw'])
-            if path is None:
-                # Path planning failed, skip to next room
-                self.current_state = self.STATE_NEXT_ROOM
-                return
-
-            self.path_published = True
+        # Wait for rotation to complete before checking arrival
+        if not self.rotation_complete:
+            return
 
         # Check if reached room
         room = self.ROOM_COORDINATES[self.current_room_index]
@@ -541,8 +663,12 @@ class FindEdibleFood(Node):
             self.current_state = self.STATE_MISSION_COMPLETE
             return
 
-        # Navigate to next room
+        # Navigate to next room - reset rotation variables
         self.get_logger().info(f'Moving to Room {self.current_room_index + 1}/{len(self.ROOM_COORDINATES)}')
+        self.rotation_complete = False
+        self.current_goal_x = None
+        self.current_goal_y = None
+        self.current_goal_yaw = None
         self.current_state = self.STATE_NAVIGATING_TO_ROOM
 
     def handle_mission_complete(self):
