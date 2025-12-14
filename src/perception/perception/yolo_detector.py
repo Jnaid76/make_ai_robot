@@ -32,7 +32,8 @@ class YOLODetector(Node):
         current_file = os.path.abspath(__file__)
         possible_roots = [
             os.path.dirname(os.path.dirname(current_file)),  # src/perception/
-            os.path.join(os.path.expanduser('~'), 'craip_2025f_g4', 'src', 'perception'),  # Absolute path
+            os.path.join(os.path.expanduser('~'), 'make_ai_robot', 'src', 'perception'),  # Absolute path
+            os.path.join(os.path.expanduser('~'), 'craip_2025f_g4', 'src', 'perception'),  # Old path for compatibility
             os.path.dirname(current_file),  # perception/perception/
         ]
         

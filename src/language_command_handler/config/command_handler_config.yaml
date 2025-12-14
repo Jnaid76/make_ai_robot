@@ -29,7 +29,14 @@ prompt: |
      - This will navigate to the toilet location and bark when aligned
      - The toilet coordinates are pre-programmed: x=-7.22, y=-0.54, yaw=1.5708
 
-  4. For navigation to colored cones (Mission 3):
+  4. For finding edible food (Mission 2):
+     - Commands like "find food", "search for edible food", "locate good food", "find something to eat", or any variation asking to find/search for edible/good food → find_edible_food.launch.py
+     - This will search through 20 hospital rooms to find non-rotten food (apple, banana, pizza)
+     - The robot performs 360° scans in each room, prioritizes edible over rotten food
+     - The robot will bark when edible food is found and stop the mission
+     - If no edible food found after 20 rooms, mission ends at the last room
+
+  5. For navigation to colored cones (Mission 3):
      - Commands like "go to the red cone", "navigate to blue cone", "find the green cone" → navigate_to_cone.launch.py with target_color parameter
      - Format: navigate_to_cone.launch.py_colorCOLOR where COLOR is red, blue, or green
      - Examples:
@@ -68,4 +75,5 @@ action_candidates:
     - go_back.launch.py
     - navigate_to_goal.launch.py
     - navigate_to_toilet_and_bark.launch.py
+    - find_edible_food.launch.py
     - navigate_to_cone.launch.py
