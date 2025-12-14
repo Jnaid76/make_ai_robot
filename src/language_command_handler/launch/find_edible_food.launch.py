@@ -3,7 +3,7 @@
 ROS2 launch file for Mission 2: Find and Identify Edible Food.
 
 This launch file starts the find_edible_food node which:
-1. Searches through 20 hospital rooms sequentially
+1. Searches through 9 hospital rooms sequentially
 2. Performs 360° scans to detect food objects
 3. Prioritizes edible food (apple, banana, pizza) over rotten
 4. Approaches detected food within 1m

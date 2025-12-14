@@ -3,7 +3,7 @@
 ROS2 node for Mission 2: Find and Identify Edible Food.
 
 This node:
-1. Navigates through 20 hospital rooms sequentially
+1. Navigates through 9 hospital rooms sequentially
 2. Performs 360° scan in each room to detect food objects
 3. Prioritizes edible food (apple, banana, pizza) over rotten food
 4. Approaches detected food within 1m using visual servoing
@@ -13,7 +13,7 @@ This node:
 Mission Requirements:
 - Navigate to each room waypoint using A* path planning
 - Use YOLO detector outputs (/detections/labels, /detections/distance)
-- Perform 180° rotation scan to collect all detections
+- Perform 360° rotation scan to collect all detections
 - Select best object (edible > rotten) and approach
 - Bark when edible food is verified at close range
 """
@@ -47,32 +47,21 @@ except (ImportError, Exception) as e:
 
 class FindEdibleFood(Node):
     """
-    Mission 2 node: Search 20 rooms to find edible food and bark.
+    Mission 2 node: Search 9 rooms to find edible food and bark.
     """
 
-    # Room coordinates (PLACEHOLDER - user will provide actual coordinates)
+    # Room coordinates for food search mission
     # Format: {'x': meters, 'y': meters, 'yaw': radians}
     ROOM_COORDINATES = [
-        {'x': 2.0, 'y': 2.0, 'yaw': 0.0},    # Room 1 (placeholder)
-        {'x': 4.0, 'y': 2.0, 'yaw': 0.0},    # Room 2 (placeholder)
-        {'x': 6.0, 'y': 2.0, 'yaw': 0.0},    # Room 3 (placeholder)
-        {'x': 8.0, 'y': 2.0, 'yaw': 0.0},    # Room 4 (placeholder)
-        {'x': 10.0, 'y': 2.0, 'yaw': 0.0},   # Room 5 (placeholder)
-        {'x': 2.0, 'y': 4.0, 'yaw': 1.57},   # Room 6 (placeholder)
-        {'x': 4.0, 'y': 4.0, 'yaw': 1.57},   # Room 7 (placeholder)
-        {'x': 6.0, 'y': 4.0, 'yaw': 1.57},   # Room 8 (placeholder)
-        {'x': 8.0, 'y': 4.0, 'yaw': 1.57},   # Room 9 (placeholder)
-        {'x': 10.0, 'y': 4.0, 'yaw': 1.57},  # Room 10 (placeholder)
-        {'x': 2.0, 'y': 6.0, 'yaw': 3.14},   # Room 11 (placeholder)
-        {'x': 4.0, 'y': 6.0, 'yaw': 3.14},   # Room 12 (placeholder)
-        {'x': 6.0, 'y': 6.0, 'yaw': 3.14},   # Room 13 (placeholder)
-        {'x': 8.0, 'y': 6.0, 'yaw': 3.14},   # Room 14 (placeholder)
-        {'x': 10.0, 'y': 6.0, 'yaw': 3.14},  # Room 15 (placeholder)
-        {'x': 2.0, 'y': 8.0, 'yaw': -1.57},  # Room 16 (placeholder)
-        {'x': 4.0, 'y': 8.0, 'yaw': -1.57},  # Room 17 (placeholder)
-        {'x': 6.0, 'y': 8.0, 'yaw': -1.57},  # Room 18 (placeholder)
-        {'x': 8.0, 'y': 8.0, 'yaw': -1.57},  # Room 19 (placeholder)
-        {'x': 10.0, 'y': 8.0, 'yaw': -1.57}, # Room 20 (placeholder)
+        {'x': -7.87, 'y': -5.55, 'yaw': -1.57},  # Room 1
+        {'x': -7.99, 'y': -7.33, 'yaw': 1.57},   # Room 2
+        {'x': -7.99, 'y': 21.14, 'yaw': 1.57},   # Room 3
+        {'x': -7.99, 'y': 26.70, 'yaw': 3.14},   # Room 4
+        {'x': 5.84, 'y': 28.55, 'yaw': -1.57},   # Room 5
+        {'x': 8.34, 'y': 19.94, 'yaw': 1.57},    # Room 6
+        {'x': 8.34, 'y': -5.87, 'yaw': 1.57},    # Room 7
+        {'x': 10.88, 'y': 5.48, 'yaw': 0.0},     # Room 8
+        {'x': 10.88, 'y': 10.56, 'yaw': 0.0},    # Room 9
     ]
 
     # Object categories (matching YOLO detector classes)
@@ -546,7 +535,7 @@ class FindEdibleFood(Node):
             # All rooms searched, no edible food found
             self.stop_robot()
             self.get_logger().error('=' * 70)
-            self.get_logger().error('Mission FAILED: No edible food found in 20 rooms')
+            self.get_logger().error(f'Mission FAILED: No edible food found in {len(self.ROOM_COORDINATES)} rooms')
             self.get_logger().error('=' * 70)
             self.mission_success = False
             self.current_state = self.STATE_MISSION_COMPLETE
