@@ -2,7 +2,7 @@
 
 import os
 from launch import LaunchDescription
-from launch.actions import (AppendEnvironmentVariable, DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable)
+from launch.actions import (AppendEnvironmentVariable, DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable, TimerAction)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -191,20 +191,27 @@ def generate_launch_description():
     # Spawn the robot in Gazebo
     # Based on the '/robot_description' topic, Gazebo will spawn the robot in the world.
     # It also connect ROS2 joint command from the joint controllers to the motor topic in Gazebo.
-    start_gazebo_ros_spawner_cmd = Node(
-        package='ros_gz_sim',
-        executable='create',
-        output='screen',
-        arguments=[
-            '-topic', '/robot_description',
-            '-name', robot_name,
-            '-allow_renaming', 'true',
-            '-x', x,
-            '-y', y,
-            '-z', z,
-            '-R', roll,
-            '-P', pitch,
-            '-Y', yaw
+    # Delayed spawn to ensure complex worlds (like hospital.world) are fully loaded first
+    start_gazebo_ros_spawner_cmd = TimerAction(
+        period=8.0,  # 8 second delay - allows complex worlds to fully initialize
+        actions=[
+            Node(
+                package='ros_gz_sim',
+                executable='create',
+                output='screen',
+                arguments=[
+                    '-world', 'default', #added
+                    '-topic', '/robot_description',
+                    '-name', robot_name,
+                    '-allow_renaming', 'true',
+                    '-x', x,
+                    '-y', y,
+                    '-z', z,
+                    '-R', roll,
+                    '-P', pitch,
+                    '-Y', yaw,
+                    '-timeout', '300.0' #added
+                ])
         ])
 
     # Publish the pointcloud from the depth camera (face and top)

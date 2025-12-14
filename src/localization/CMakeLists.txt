@@ -1,38 +1,33 @@
 cmake_minimum_required(VERSION 3.8)
-project(language_command_handler)
+project(localization)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
-find_package(ament_cmake REQUIRED)
-find_package(ament_cmake_python REQUIRED)
-find_package(rclpy REQUIRED)
+##### CHANGE START #####
 
-# Install launch files
-install(DIRECTORY
-  config
-  launch
-  language_command_handler
-  DESTINATION share/${PROJECT_NAME}/
+###### find dependencies ######
+find_package(ament_cmake REQUIRED)
+
+##### Copy folders to install directory #####
+install(
+  DIRECTORY 
+    launch
+  DESTINATION share/${PROJECT_NAME}
 )
 
-# Install Python modules
-ament_python_install_package(${PROJECT_NAME})
-
-# Install Python executables
+# Install Python entry points as executables
 install(
   PROGRAMS
-    language_command_handler/language_command_handler.py
-    language_command_handler/go_front.py
-    language_command_handler/go_back.py
-    language_command_handler/stop.py
-    language_command_handler/navigate_to_toilet_and_bark.py
-    language_command_handler/navigate_to_cone.py
-    language_command_handler/find_edible_food.py
+    localization/odom_localizer_node.py
+    localization/global_localizer_node.py
+    localization/utils.py
+    scripts/record_trajectory.py
   DESTINATION lib/${PROJECT_NAME}
 )
+
+##### CHANGE END #####
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
