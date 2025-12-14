@@ -31,6 +31,7 @@ install(
     language_command_handler/navigate_to_toilet_and_bark.py
     language_command_handler/navigate_to_cone.py
     language_command_handler/find_edible_food.py
+    language_command_handler/push_delivery_box.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

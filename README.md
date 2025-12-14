@@ -918,6 +918,45 @@ Distance between goal area and delivery box is 2m, and the orientation of box wi
 
 **Points**: 10 points with success/failure. The box should be in the red area.
 
+### 🧪 Testing Mission 4
+
+To test Mission 4 in an isolated environment with a simple 30m × 30m room:
+
+**Terminal 1: Gazebo Simulation**
+```bash
+ros2 launch go1_simulation go1.gazebo.launch.py \
+  use_gt_pose:=true \
+  world_file_name:=push_box.world \
+  x:=0.0 y:=0.0 z:=0.5 yaw:=0.0
+```
+
+**Terminal 2: Robot Controller**
+```bash
+ros2 run unitree_guide2 junior_ctrl
+# Press: 1 → 2 → 5 (passive → stand → move base)
+```
+
+**Terminal 3: Path Tracker**
+```bash
+ros2 launch path_tracker path_tracker_launch.py
+```
+
+**Terminal 4: Perception (YOLO Detector)**
+```bash
+ros2 launch perception perception.launch.py
+```
+
+**Terminal 5: Mission Node**
+```bash
+ros2 launch language_command_handler push_delivery_box.launch.py
+```
+
+**Expected Behavior**:
+- Robot navigates to position 1: (15, -3) with yaw 90°
+- If box not detected within 2m → navigate to position 2: (12, 0) with yaw 0°
+- When box detected within 2m → push forward 3m
+- Mission success when box reaches red goal area at (15, 0)
+
 ---
 
 ## Mission 5
