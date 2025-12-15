@@ -378,6 +378,15 @@ class NavigateToCone(Node):
             return
 
         if self.current_state == self.STATE_NAVIGATING_TO_VIEW:
+            # Set current goal if not set
+            if self.current_goal_x is None:
+                self.current_goal_x = self.VIEWING_X
+                self.current_goal_y = self.VIEWING_Y
+                self.current_goal_yaw = self.VIEWING_YAW
+                self.path_published = False
+                self.rotation_complete = False
+                self.get_logger().info(f'Navigating to viewing position: ({self.VIEWING_X:.2f}, {self.VIEWING_Y:.2f}), yaw={math.degrees(self.VIEWING_YAW):.1f}°')
+
             # Check if reached viewing position (only after rotation complete)
             if not self.rotation_complete:
                 return
@@ -391,6 +400,9 @@ class NavigateToCone(Node):
                 self.get_logger().info('Reached viewing position. Searching for cone...')
                 self.current_state = self.STATE_SEARCHING_CONE
                 self.path_published = False
+                # Stop robot
+                stop_msg = Twist()
+                self.vel_pub.publish(stop_msg)
 
         elif self.current_state == self.STATE_SEARCHING_CONE:
             if self.cone_detected:
