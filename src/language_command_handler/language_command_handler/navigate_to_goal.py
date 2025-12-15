@@ -238,7 +238,7 @@ class NavigateToGoal(Node):
             h11 = t**3 - t**2
             
             pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = "map"
+            pose_stamped.header.frame_id = "D"  # Force forward gear for path_tracker
             pose_stamped.header.stamp = self.get_clock().now().to_msg()
             
             # Compute position
@@ -420,7 +420,7 @@ class NavigateToGoal(Node):
                 explicit_yaw = None
 
             pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = "map"
+            pose_stamped.header.frame_id = "D"  # Force forward gear for path_tracker
             pose_stamped.header.stamp = self.get_clock().now().to_msg()
 
             pose_stamped.pose.position.x = float(x)

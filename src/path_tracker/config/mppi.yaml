@@ -73,7 +73,7 @@ path_tracker:
     wheelBase: 0.512             # Distance between front and rear (m)
     
     maxLinVel: 0.25              # Maximum linear velocity (m/s)
-    maxAngVel: 0.2               # Maximum angular velocity (rad/s) - reduced for stability
+    maxAngVel: 0.1               # Maximum angular velocity (rad/s) - reduced for better stability
     
     # ===========================================================================
     # Coordinate Frames
