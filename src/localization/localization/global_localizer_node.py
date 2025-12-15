@@ -82,19 +82,19 @@ class GlobalLocalizerNode(Node):
 
         # ===== Particle filter parameters =====
         self.num_particles = 500
-        self.initial_variance = [0.5, 0.5, 0.2]  # [var_x, var_y, var_theta]
+        self.initial_variance = [0.2, 0.2, 0.3]  # [var_x, var_y, var_theta] - optimized
 
-        # Motion model noise
+        # Motion model noise (optimized for better accuracy)
         self.motion_noise = {
-            'trans': 0.05,  # Proportional to translation
-            'rot': 0.05     # Proportional to rotation
+            'trans': 0.02,  # Proportional to translation
+            'rot': 0.01     # Proportional to rotation
         }
 
-        # Sensor model parameters
+        # Sensor model parameters (optimized)
         self.sensor_params = {
-            'z_hit': 0.95,
-            'z_rand': 0.05,
-            'sigma_hit': 0.2,
+            'z_hit': 0.98,         # Increase confidence in good measurements
+            'z_rand': 0.02,        # Reduce random noise
+            'sigma_hit': 0.2,      # Keep same as optimized offline PF
             'max_range': 30.0
         }
 
@@ -262,8 +262,11 @@ class GlobalLocalizerNode(Node):
         # Convert scan to point cloud
         scan_pcd = scan_to_pcd(self.latest_scan)
 
-        # Subsample scan for performance (use every 5th point)
-        scan_pcd = scan_pcd[::5]
+        # Subsample scan for performance (optimized beam selection - ~36 beams)
+        n_beams = 36
+        if len(scan_pcd) > n_beams:
+            step = len(scan_pcd) // n_beams
+            scan_pcd = scan_pcd[::step]
 
         if len(scan_pcd) < 10:
             self.get_logger().warn('Not enough scan points', throttle_duration_sec=2.0)

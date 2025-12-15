@@ -98,6 +98,7 @@ class NavigateToCone(Node):
         self.map_received = False
         self.path_published = False
         self.current_state = self.STATE_NAVIGATING_TO_VIEW
+        self.rotation_complete = False
 
         # Cone detection variables
         self.cone_detected = False
@@ -105,6 +106,13 @@ class NavigateToCone(Node):
         self.cone_center_y = 0
         self.cone_distance = float('inf')
         self.last_cone_detection_time = None
+
+        # Rotation parameters (from toilet navigation logic)
+        self.rotation_threshold = 0.1  # radians (~5.7 degrees)
+        self.rotation_speed = 0.3  # angular velocity for rotation
+        self.current_goal_x = None
+        self.current_goal_y = None
+        self.current_goal_yaw = None
 
         # CV Bridge
         self.bridge = CvBridge()
@@ -187,6 +195,9 @@ class NavigateToCone(Node):
         # Timer for state machine updates
         self.timer = self.create_timer(0.5, self.state_machine_update)
 
+        # Timer for rotation control (from toilet navigation logic)
+        self.rotation_timer = self.create_timer(0.1, self.rotation_callback)
+
         self.get_logger().info('Mission node initialized. Waiting for robot pose and map...')
 
     def map_callback(self, msg: OccupancyGrid):
@@ -223,16 +234,11 @@ class NavigateToCone(Node):
     def pose_callback(self, msg: PoseStamped):
         """Callback for robot pose updates."""
         if self.robot_pose is None:
-            self.robot_pose = msg
             self.get_logger().info(
                 f'Robot pose received: x={msg.pose.position.x:.3f}, y={msg.pose.position.y:.3f}'
             )
 
-            if not self.path_published and self.current_state == self.STATE_NAVIGATING_TO_VIEW:
-                if self.planner is None or self.map_received:
-                    self.generate_and_publish_path(self.VIEWING_X, self.VIEWING_Y, self.VIEWING_YAW)
-        else:
-            self.robot_pose = msg
+        self.robot_pose = msg
 
     def depth_callback(self, msg: Image):
         """Callback for depth image."""
@@ -322,13 +328,72 @@ class NavigateToCone(Node):
         except Exception as e:
             self.get_logger().error(f'Error processing camera image: {e}')
 
+    def rotation_callback(self):
+        """Timer callback to handle initial rotation towards goal yaw."""
+        if self.robot_pose is None:
+            return
+
+        # Only rotate when navigating to viewing position and not yet rotated
+        if self.current_state != self.STATE_NAVIGATING_TO_VIEW or self.rotation_complete:
+            return
+
+        # Set goal if not set yet
+        if self.current_goal_x is None:
+            self.current_goal_x = self.VIEWING_X
+            self.current_goal_y = self.VIEWING_Y
+            self.current_goal_yaw = self.VIEWING_YAW
+            
+            # Check distance to viewing position
+            distance_to_view = math.sqrt(
+                (self.robot_pose.pose.position.x - self.VIEWING_X)**2 +
+                (self.robot_pose.pose.position.y - self.VIEWING_Y)**2
+            )
+            
+            # If very close to viewing position (within 1m), skip rotation
+            if distance_to_view < 1.0:
+                self.rotation_complete = True
+                self.get_logger().info(f'Already near viewing position ({distance_to_view:.2f}m), skipping rotation')
+                return
+
+        # Calculate yaw error (rotate to goal yaw, not direction to goal)
+        current_yaw = self.quaternion_to_yaw(self.robot_pose.pose.orientation)
+        yaw_error = self.normalize_angle(self.current_goal_yaw - current_yaw)
+
+        # Check if rotation is complete
+        if abs(yaw_error) < self.rotation_threshold:
+            if not self.rotation_complete:
+                # Stop rotation
+                stop_msg = Twist()
+                self.vel_pub.publish(stop_msg)
+
+                self.rotation_complete = True
+                self.get_logger().info(f'✓ Rotation complete! Aligned to yaw {math.degrees(self.current_goal_yaw):.1f}° (error: {math.degrees(yaw_error):.1f}°)')
+
+                # Now publish the navigation path
+                if not self.path_published:
+                    self.generate_and_publish_path(self.current_goal_x, self.current_goal_y, self.current_goal_yaw)
+        else:
+            # Continue rotating (pure rotation, no forward motion)
+            twist = Twist()
+            twist.linear.x = 0.0  # No forward motion during rotation
+            twist.angular.z = self.rotation_speed if yaw_error > 0 else -self.rotation_speed
+            self.vel_pub.publish(twist)
+
+            if not hasattr(self, '_last_rotation_log') or \
+               (self.get_clock().now() - self._last_rotation_log).nanoseconds > 1e9:  # Log every 1 second
+                self.get_logger().info(f'Rotating to yaw {math.degrees(self.current_goal_yaw):.1f}°... (error: {math.degrees(yaw_error):.1f}°)')
+                self._last_rotation_log = self.get_clock().now()
+
     def state_machine_update(self):
         """Update state machine."""
         if self.robot_pose is None:
             return
 
         if self.current_state == self.STATE_NAVIGATING_TO_VIEW:
-            # Check if reached viewing position
+            # Check if reached viewing position (only after rotation complete)
+            if not self.rotation_complete:
+                return
+
             distance_to_view = math.sqrt(
                 (self.robot_pose.pose.position.x - self.VIEWING_X)**2 +
                 (self.robot_pose.pose.position.y - self.VIEWING_Y)**2
@@ -343,6 +408,9 @@ class NavigateToCone(Node):
             if self.cone_detected:
                 self.get_logger().info(f'Found {self.target_color} cone! Approaching...')
                 self.current_state = self.STATE_APPROACHING_CONE
+                # Stop any path following when switching to visual servoing
+                stop_msg = Twist()
+                self.vel_pub.publish(stop_msg)
 
         elif self.current_state == self.STATE_APPROACHING_CONE:
             if self.cone_detected and self.cone_distance < self.DETECTION_DISTANCE_MAX:
@@ -544,6 +612,11 @@ class NavigateToCone(Node):
                 yaw = goal_yaw
 
             pose_stamped.pose.orientation = self.yaw_to_quaternion(yaw)
+
+            # Override frame_id to "D" (Drive/Forward) to prevent backward motion
+            # This ensures robot always rotates in place first, then moves forward
+            pose_stamped.header.frame_id = "D"
+
             path.poses.append(pose_stamped)
 
         return path
@@ -578,7 +651,7 @@ class NavigateToCone(Node):
             h11 = t**3 - t**2
 
             pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = "map"
+            pose_stamped.header.frame_id = "D"  # Force forward gear
             pose_stamped.header.stamp = self.get_clock().now().to_msg()
 
             tangent_x0 = cx0 - x_start
