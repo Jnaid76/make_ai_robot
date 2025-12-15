@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
-<sdf version="1.7">
-  <world name="push_box_world">
+<sdf version="1.6">
+  <world name="default">
     <!-- Physics settings -->
     <physics default="1" name="default_physics" type="dart">
       <max_step_size>0.001</max_step_size>
@@ -27,31 +27,9 @@
     <gravity>0 0 -9.8</gravity>
 
     <!-- Ground plane -->
-    <model name="ground_plane">
-      <static>true</static>
-      <link name="link">
-        <collision name="collision">
-          <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>50 50</size>
-            </plane>
-          </geometry>
-        </collision>
-        <visual name="visual">
-          <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>50 50</size>
-            </plane>
-          </geometry>
-          <material>
-            <ambient>0.8 0.8 0.8 1</ambient>
-            <diffuse>0.8 0.8 0.8 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
+    <include>
+      <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Ground Plane</uri>
+    </include>
 
     <!-- North wall (30m × 30m room, 0.2m thick, 2.5m tall) -->
     <model name="north_wall">
@@ -160,7 +138,7 @@
     <!-- Red goal area -->
     <model name="goal_area">
       <static>true</static>
-      <pose>15 0 -0.499 0 0 0</pose>
+      <pose>5 0 -0.499 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry>
@@ -184,7 +162,7 @@
       <include>
         <uri>model://box</uri>
         <static>false</static>
-        <pose>13 0 0.15 0 0 0</pose>
+        <pose>3 0 0.15 0 0 0</pose>
       </include>
     </model>
 

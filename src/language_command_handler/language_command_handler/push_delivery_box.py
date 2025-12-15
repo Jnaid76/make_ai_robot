@@ -53,9 +53,9 @@ class PushDeliveryBox(Node):
     # Detection positions
     # Format: {'x': meters, 'y': meters, 'yaw': radians}
     DETECTION_POSITIONS = [
-        {'x': 15.0, 'y': -3.0, 'yaw': math.pi/2},      # Position 1: South side, yaw 90°
-        {'x': 12.0, 'y': 0.0, 'yaw': 0.0},             # Position 2: West of box, yaw 0°
-        {'x': 15.0, 'y': 3.0, 'yaw': -math.pi/2},      # Position 3: North side, yaw -90°
+        {'x': 5.0, 'y': -3.0, 'yaw': math.pi},       # Position 1: South side, yaw 90°
+        {'x': 2.0, 'y': 0.0, 'yaw': math.pi/2},      # Position 2: West of box, yaw 0°
+        {'x': 5.0, 'y': 3.0, 'yaw': 0},              # Position 3: North side, yaw -90°
     ]
 
     # Mission parameters
@@ -112,11 +112,8 @@ class PushDeliveryBox(Node):
         # Initialize A* planner
         self.planner = None
         if self.use_astar and AStarPlanner is not None:
-            self.planner = AStarPlanner(
-                inflation_radius=inflation_radius,
-                simplify_path=self.simplify_path
-            )
-            self.get_logger().info(f'A* planner initialized (inflation={inflation_radius}m)')
+            self.planner = AStarPlanner(inflation_radius=inflation_radius)
+            self.get_logger().info(f'A* planner initialized (inflation={inflation_radius}m, simplify={self.simplify_path})')
         else:
             self.get_logger().info('A* planner disabled, using straight-line paths')
 
@@ -197,12 +194,19 @@ class PushDeliveryBox(Node):
         # Reshape to 2D grid
         map_data = np.array(msg.data, dtype=np.int8).reshape((height, width))
 
+        # Create map metadata dictionary
+        map_metadata = {
+            'resolution': resolution,
+            'origin_x': origin_x,
+            'origin_y': origin_y,
+            'width': width,
+            'height': height
+        }
+
         # Initialize planner with map
-        if self.planner.set_map(map_data, resolution, origin_x, origin_y):
-            self.map_received = True
-            self.get_logger().info(f'A* planner ready! Map size: {width}x{height}, resolution: {resolution}m')
-        else:
-            self.get_logger().error('Failed to initialize A* planner with map')
+        self.planner.set_map(map_data, map_metadata)
+        self.map_received = True
+        self.get_logger().info(f'A* planner ready! Map size: {width}x{height}, resolution: {resolution}m')
 
     def pose_callback(self, msg: PoseStamped):
         """Callback for robot pose updates."""
@@ -438,14 +442,17 @@ class PushDeliveryBox(Node):
             pose_stamped.pose.position.z = 0.0
 
             # Use waypoint yaw if available, otherwise compute from direction
-            if len(wp) > 2:
+            if len(wp) > 2 and wp[2] is not None:
                 yaw = wp[2]
             elif i < len(waypoints) - 1:
                 dx = waypoints[i + 1][0] - wp[0]
                 dy = waypoints[i + 1][1] - wp[1]
                 yaw = math.atan2(dy, dx)
-            else:
+            elif goal_yaw is not None:
                 yaw = goal_yaw
+            else:
+                # Fallback: use yaw from previous waypoint or 0
+                yaw = 0.0
 
             pose_stamped.pose.orientation = self.yaw_to_quaternion(yaw)
             path_msg.poses.append(pose_stamped)
