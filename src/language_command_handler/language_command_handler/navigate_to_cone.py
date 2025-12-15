@@ -329,7 +329,7 @@ class NavigateToCone(Node):
             self.get_logger().error(f'Error processing camera image: {e}')
 
     def rotation_callback(self):
-        """Timer callback to handle initial rotation towards goal (from toilet navigation logic)."""
+        """Timer callback to handle initial rotation towards goal yaw."""
         if self.robot_pose is None:
             return
 
@@ -343,24 +343,19 @@ class NavigateToCone(Node):
             self.current_goal_y = self.VIEWING_Y
             self.current_goal_yaw = self.VIEWING_YAW
 
-        # Calculate angle to goal
+        # Calculate yaw error (rotate to goal yaw, not direction to goal)
         current_yaw = self.quaternion_to_yaw(self.robot_pose.pose.orientation)
-        dx = self.current_goal_x - self.robot_pose.pose.position.x
-        dy = self.current_goal_y - self.robot_pose.pose.position.y
-        desired_yaw = math.atan2(dy, dx)
-
-        # Calculate angle difference
-        angle_diff = self.normalize_angle(desired_yaw - current_yaw)
+        yaw_error = self.normalize_angle(self.current_goal_yaw - current_yaw)
 
         # Check if rotation is complete
-        if abs(angle_diff) < self.rotation_threshold:
+        if abs(yaw_error) < self.rotation_threshold:
             if not self.rotation_complete:
                 # Stop rotation
                 stop_msg = Twist()
                 self.vel_pub.publish(stop_msg)
 
                 self.rotation_complete = True
-                self.get_logger().info(f'✓ Rotation complete! Aligned with goal (error: {math.degrees(angle_diff):.1f}°)')
+                self.get_logger().info(f'✓ Rotation complete! Aligned to yaw {math.degrees(self.current_goal_yaw):.1f}° (error: {math.degrees(yaw_error):.1f}°)')
 
                 # Now publish the navigation path
                 if not self.path_published:
@@ -369,12 +364,12 @@ class NavigateToCone(Node):
             # Continue rotating (pure rotation, no forward motion)
             twist = Twist()
             twist.linear.x = 0.0  # No forward motion during rotation
-            twist.angular.z = self.rotation_speed if angle_diff > 0 else -self.rotation_speed
+            twist.angular.z = self.rotation_speed if yaw_error > 0 else -self.rotation_speed
             self.vel_pub.publish(twist)
 
             if not hasattr(self, '_last_rotation_log') or \
                (self.get_clock().now() - self._last_rotation_log).nanoseconds > 1e9:  # Log every 1 second
-                self.get_logger().info(f'Rotating towards goal... (angle error: {math.degrees(angle_diff):.1f}°)')
+                self.get_logger().info(f'Rotating to yaw {math.degrees(self.current_goal_yaw):.1f}°... (error: {math.degrees(yaw_error):.1f}°)')
                 self._last_rotation_log = self.get_clock().now()
 
     def state_machine_update(self):
