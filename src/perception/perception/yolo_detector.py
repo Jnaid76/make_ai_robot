@@ -61,9 +61,9 @@ class YOLODetector(Node):
         self.model = YOLO(model_path)
         self.get_logger().info('YOLO model loaded successfully')
 
-        # Load class names
-        self.class_names = self._load_class_names(classes_path)
-        self.get_logger().info(f'Loaded {len(self.class_names)} classes: {self.class_names}')
+        # Use model's class names (more reliable than classes.txt)
+        self.class_names = self.model.names  # Dict: {0: 'apple', 1: 'banana', ...}
+        self.get_logger().info(f'Loaded {len(self.class_names)} classes from model: {self.class_names}')
 
         # Publishers (required topics)
         self.image_pub = self.create_publisher(
@@ -94,8 +94,11 @@ class YOLODetector(Node):
         # Frame counter for logging
         self.frame_count = 0
 
-        # Detection confidence threshold
-        self.conf_threshold = 0.25
+        # Detection confidence threshold (higher = fewer false positives)
+        self.conf_threshold = 0.8  # 50% confidence minimum
+        
+        # Maximum distance for barking (meters)
+        self.max_bark_distance = 3.0
 
         self.get_logger().info('YOLO Detector initialized')
         self.get_logger().info('Subscribed to: /camera_top/image, /camera_top/depth')
@@ -137,11 +140,8 @@ class YOLODetector(Node):
                     cls_id = int(box.cls[0].cpu().numpy())
                     conf = float(box.conf[0].cpu().numpy())
                     
-                    # Get class name
-                    if cls_id < len(self.class_names):
-                        label = self.class_names[cls_id]
-                    else:
-                        label = f'class_{cls_id}'
+                    # Get class name from model's class dict
+                    label = self.class_names.get(cls_id, f'class_{cls_id}')
 
                     # Calculate distance from depth image
                     bbox = (x1, y1, x2, y2)
@@ -194,11 +194,15 @@ class YOLODetector(Node):
             distance_msg.data = centered_distance if centered_idx >= 0 else -1.0
             self.distance_pub.publish(distance_msg)
 
-            # 4. Speech (bark if edible object is centered)
+            # 4. Speech (bark if edible object is centered AND within 3 meters)
             speech_msg = String()
             if centered_idx >= 0:
                 centered_label = detections[centered_idx]['label']
-                if centered_label in self.edible_objects:
+                centered_dist = detections[centered_idx]['distance']
+                # Only bark if: edible object + within max distance + valid distance reading
+                if (centered_label in self.edible_objects and 
+                    centered_dist > 0 and 
+                    centered_dist <= self.max_bark_distance):
                     speech_msg.data = 'bark'
                 else:
                     speech_msg.data = 'None'

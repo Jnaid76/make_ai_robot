@@ -32,7 +32,6 @@ setup(
         "console_scripts": [
             "yolo_detector = perception.yolo_detector:main",
             "data_collector = perception.data_collector:main",
-            "find_food_and_bark = perception.find_food_and_bark:main",
         ],
     },
 )
