@@ -95,7 +95,7 @@ class YOLODetector(Node):
         self.frame_count = 0
 
         # Detection confidence threshold (higher = fewer false positives)
-        self.conf_threshold = 0.8  # 50% confidence minimum
+        self.conf_threshold = 0.5  # 50% confidence minimum
         
         # Maximum distance for barking (meters)
         self.max_bark_distance = 3.0
@@ -128,7 +128,7 @@ class YOLODetector(Node):
             # Run YOLO inference
             results = self.model(cv_image, conf=self.conf_threshold, verbose=False)
 
-            # Parse detections
+            # Parse detections - only keep those with valid distance within range
             detections = []
             for result in results:
                 boxes = result.boxes
@@ -147,6 +147,11 @@ class YOLODetector(Node):
                     bbox = (x1, y1, x2, y2)
                     distance = DistanceEstimator.get_distance(depth_image, bbox)
 
+                    # FILTER: Only include detections with valid distance AND within 3m
+                    # Skip detections with invalid depth (-1) or too far away
+                    if distance <= 0 or distance > self.max_bark_distance:
+                        continue  # Skip this detection
+                    
                     detections.append({
                         'bbox': bbox,
                         'label': label,

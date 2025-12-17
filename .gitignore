@@ -8,3 +8,5 @@ v-hacd/
 .env
 *.db3
 **/*.db3
+/perception_bag
+perception_venv/
